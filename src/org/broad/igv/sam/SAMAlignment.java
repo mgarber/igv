@@ -392,7 +392,6 @@ public abstract class SAMAlignment implements Alignment {
 
         byte[] blockBases = new byte[nBases];
         byte[] blockQualities = new byte[nBases];
-        short[] blockCounts = new short[nBases];
 
         // TODO -- represent missing sequence ("*") explicitly for efficiency.
         int nBasesAvailable = nBases;
@@ -419,10 +418,10 @@ public abstract class SAMAlignment implements Alignment {
 
         AlignmentBlock block;
         if (fBlockBuilder != null) {
-            block = AlignmentBlock.getInstance(chr, blockStart, blockBases, blockQualities,
+            block = new AlignmentBlock(chr, blockStart, blockBases, blockQualities,
                     fBlockBuilder.getFlowSignalContext(readBases, fromIdx, nBases));
         } else {
-            block = AlignmentBlock.getInstance(chr, blockStart, blockBases, blockQualities);
+            block = new AlignmentBlock(chr, blockStart, blockBases, blockQualities);
         }
 
         return block;
@@ -494,11 +493,16 @@ public abstract class SAMAlignment implements Alignment {
             buf.append("Read group = " + readGroup + "<br>");
         }
 
+        String cigarString = getCigarString();
+        if (cigarString.length() > 80) {
+            cigarString = cigarString.substring(0, 80) + "...";
+        }
+
         buf.append("----------------------" + "<br>");
         int basePosition = (int) position;
         buf.append("Location = " + getChr() + ":" + DECIMAL_FORMAT.format(1 + (long) position) + "<br>");
         buf.append("Alignment start = " + DECIMAL_FORMAT.format(getAlignmentStart() + 1) + " (" + (isNegativeStrand() ? "-" : "+") + ")<br>");
-        buf.append("Cigar = " + getCigarString() + "<br>");
+        buf.append("Cigar = " + cigarString + "<br>");
         buf.append("Mapped = " + (isMapped() ? "yes" : "no") + "<br>");
         buf.append("Mapping quality = " + getMappingQuality() + "<br>");
         buf.append("Secondary = " + (isPrimary() ? "no" : "yes") + "<br>");

@@ -13,8 +13,7 @@ package org.broad.igv.util.stream;
 
 import htsjdk.samtools.seekablestream.SeekableStream;
 import org.apache.log4j.Logger;
-import htsjdk.tribble.util.URLHelper;
-import org.broad.igv.exceptions.HttpResponseException;
+import org.broad.igv.ui.util.Packable;
 import org.broad.igv.util.HttpUtils;
 
 import java.io.EOFException;
@@ -64,6 +63,26 @@ public class IGVSeekableHTTPStream extends SeekableStream {
     }
 
     public int read(byte[] buffer, int offset, int len) throws IOException {
+
+        int attempts = 0;
+        while(attempts < 3) {
+            try {
+                return _read(buffer, offset, len);
+            } catch (java.net.SocketException e) {
+                if(attempts < 3) {
+                    attempts++;
+                    log.error("Socket exception. Trying again.", e);
+                }
+                else {
+                    throw e;
+                }
+            }
+        }
+
+        throw new RuntimeException("Reading " + url + " failed with unknown error.");  // Should be impossible to get here
+    }
+
+    public int _read(byte[] buffer, int offset, int len) throws IOException {
 
         String stats = "Offset=" + offset + ",len=" + len + ",buflen=" + buffer.length;
         if (offset < 0 || len < 0 || (offset + len) > buffer.length) {
@@ -134,6 +153,7 @@ public class IGVSeekableHTTPStream extends SeekableStream {
     }
 
 
+
     public void close() throws IOException {
         // Nothing to do
     }
@@ -171,7 +191,6 @@ public class IGVSeekableHTTPStream extends SeekableStream {
             throw e;
         }
     }
-
 
 
     /**
