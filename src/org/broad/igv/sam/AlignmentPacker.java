@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 /*
@@ -15,8 +29,6 @@
  */
 package org.broad.igv.sam;
 
-import com.google.common.collect.HashBasedTable;
-import com.google.common.collect.Table;
 import org.apache.log4j.Logger;
 import org.broad.igv.feature.Range;
 import org.broad.igv.feature.Strand;
@@ -35,7 +47,7 @@ public class AlignmentPacker {
     /**
      * Minimum gap between the end of one alignment and start of another.
      */
-    public static final int MIN_ALIGNMENT_SPACING = 5;
+    public static final int MIN_ALIGNMENT_SPACING = 2;
     private static final Comparator<Alignment> lengthComparator = new Comparator<Alignment>() {
         public int compare(Alignment row1, Alignment row2) {
             return (row2.getEnd() - row2.getStart()) -
@@ -44,9 +56,7 @@ public class AlignmentPacker {
         }
     };
 
-    private static final String NULL_GROUP_VALUE = "Because google-guava tables don't support a null key, we use a special value" +
-            " for null keys. It doesn't matter much what it is, but we want to avoid collisions. I find it unlikely that " +
-            " this sentence will ever be used as a group value";
+    private static final String NULL_GROUP_VALUE = "";
     public static final int tenMB = 10000000;
 
     /**
@@ -60,18 +70,22 @@ public class AlignmentPacker {
 
         LinkedHashMap<String, List<Row>> packedAlignments = new LinkedHashMap<String, List<Row>>();
 
-        boolean isPairedAlignments = renderOptions.isViewPairs() || renderOptions.isPairedArcView();
 
+        List<Alignment> alList = interval.getAlignments();
+        // TODO -- means to undo this
+        if (renderOptions.isLinkedReads()) {
+            alList = linkByTag(alList, renderOptions.getLinkByTag());
+        }
 
         if (renderOptions.groupByOption == null) {
             List<Row> alignmentRows = new ArrayList<Row>(10000);
-            pack(interval.getAlignments(), isPairedAlignments, alignmentRows);
+            pack(alList, renderOptions, alignmentRows);
             packedAlignments.put("", alignmentRows);
         } else {
 
             // Separate alignments into groups.
             Map<String, List<Alignment>> groupedAlignments = new HashMap<String, List<Alignment>>();
-            Iterator<Alignment> iter = interval.getAlignmentIterator();
+            Iterator<Alignment> iter = alList.iterator();
             while (iter.hasNext()) {
                 Alignment alignment = iter.next();
                 String groupKey = getGroupValue(alignment, renderOptions);
@@ -87,24 +101,17 @@ public class AlignmentPacker {
             }
 
 
-            // Now alphabetize (sort) and packGroup the groups
+            // Now alphabetize (sort) and pack the groups
             List<String> keys = new ArrayList<String>(groupedAlignments.keySet());
             Comparator<String> groupComparator = getGroupComparator(renderOptions.groupByOption);
             Collections.sort(keys, groupComparator);
 
             for (String key : keys) {
-                if(key.equals(NULL_GROUP_VALUE)) continue;
                 List<Row> alignmentRows = new ArrayList<Row>(10000);
                 List<Alignment> group = groupedAlignments.get(key);
-                pack(group, isPairedAlignments, alignmentRows);
+                pack(group, renderOptions, alignmentRows);
                 packedAlignments.put(key, alignmentRows);
             }
-
-            //Put null valued group at end
-            List<Row> alignmentRows = new ArrayList<Row>(10000);
-            List<Alignment> group = groupedAlignments.get(NULL_GROUP_VALUE);
-            pack(group, isPairedAlignments, alignmentRows);
-            packedAlignments.put("", alignmentRows);
         }
 
         List<AlignmentInterval> tmp = new ArrayList<AlignmentInterval>();
@@ -113,12 +120,17 @@ public class AlignmentPacker {
     }
 
 
-    private void pack(List<Alignment> alList, boolean pairAlignments, List<Row> alignmentRows) {
+    private void pack(List<Alignment> alList, AlignmentTrack.RenderOptions renderOptions, List<Row> alignmentRows) {
 
         Map<String, PairedAlignment> pairs = null;
-        if (pairAlignments) {
+
+        boolean isPairedAlignments = renderOptions.isViewPairs();
+        String linkByTag = renderOptions.getLinkByTag();
+
+        if (isPairedAlignments) {
             pairs = new HashMap<String, PairedAlignment>(1000);
         }
+
 
         // Allocate alignemnts to buckets for each range.
         // We use priority queues to keep the buckets sorted by alignment length.  However this  is probably a needless
@@ -142,13 +154,14 @@ public class AlignmentPacker {
             bucketCollection = new SparseBucketCollection(curRange);
         }
 
-
         int curRangeStart = curRange.getStart();
         for (Alignment al : alList) {
 
             if (al.isMapped()) {
                 Alignment alignment = al;
-                if (pairAlignments && al.isPaired() && al.getMate().isMapped() && al.getMate().getChr().equals(al.getChr())) {
+
+                // Pair alignments -- do not pair secondaryalignments
+                if (isPairedAlignments && isPairable(al)) {
                     String readName = al.getReadName();
                     PairedAlignment pair = pairs.get(readName);
                     if (pair == null) {
@@ -164,6 +177,7 @@ public class AlignmentPacker {
                     }
                 }
 
+                // Allocate to bucket.
                 // Negative "bucketNumbers" can arise with soft clips at the left edge of the chromosome. Allocate
                 // these alignments to the first bucket.
                 int bucketNumber = Math.max(0, al.getStart() - curRangeStart);
@@ -241,6 +255,71 @@ public class AlignmentPacker {
 
     }
 
+    private boolean isPairable(Alignment al) {
+        return al.isPrimary() &&
+                al.isPaired() &&
+                al.getMate().isMapped() &&
+                al.getMate().getChr().equals(al.getChr());
+    }
+
+    private List<Alignment> linkByTag(List<Alignment> alList, String tag) {
+
+        List<Alignment> bcList = new ArrayList<>(alList.size() / 10);
+        Map<Object, LinkedAlignment> map = new HashMap<>(bcList.size() * 2);
+
+        for (Alignment a : alList) {
+
+            if(a.isPrimary()) {
+                Object bc;
+                if("READNAME".equals(tag)) {
+                    bc = a.getReadName();
+                    if(a.isPaired()) {
+                        bc += a.isFirstOfPair() ? "/1" : "/2";
+                    }
+                }
+                else {
+                    bc = a.getAttribute(tag);
+                }
+
+                if (bc == null) {
+                    bcList.add(a);
+                } else {
+                    LinkedAlignment linkedAlignment = map.get(bc);
+                    if (linkedAlignment == null) {
+                        linkedAlignment = new LinkedAlignment(tag, bc.toString());
+                        map.put(bc, linkedAlignment);
+                        bcList.add(linkedAlignment);
+                    }
+                    linkedAlignment.addAlignment(a);
+                }
+            }
+            else {
+                // Don't link secondary reads
+                bcList.add(a);
+            }
+        }
+
+        // Now copy list, de-linking orhpaned alignments (alignments with no linked mates)
+        List<Alignment> delinkedList = new ArrayList<>(alList.size());
+        for(Alignment a : bcList) {
+            if(a instanceof LinkedAlignment) {
+                final List<Alignment> alignments = ((LinkedAlignment) a).alignments;
+                if(alignments.size() == 1) {
+                    delinkedList.add(alignments.get(0));
+                }
+                else {
+                    a.finish();
+                    delinkedList.add(a);
+                }
+            }
+            else {
+                delinkedList.add(a);
+            }
+        }
+
+        return delinkedList;
+    }
+
 
     /**
      * Gets the range over which alignmentsList spans. Asssumes all on same chr, and sorted
@@ -270,15 +349,25 @@ public class AlignmentPacker {
                 return new Comparator<String>() {
                     @Override
                     public int compare(String o1, String o2) {
-                        if (o1 != null) {
-                            return o1.compareToIgnoreCase(o2);
-                        } else if (o2 != null) {
-                            return o2.compareToIgnoreCase(o1);
-                        } else {
-                            //Both null;
+                        if (o1 == null && o2 == null) {
                             return 0;
+                        } else if (o1 == null) {
+                            return 1;
+                        } else if (o2 == null) {
+                            return -1;
+                        } else {
+                            // no nulls
+                            if (o1.equals(o2)) {
+                                return 0;
+                            } else if (NULL_GROUP_VALUE.equals(o1)) {
+                                return 1;
+                            }
+                            if (NULL_GROUP_VALUE.equals(o2)) {
+                                return -1;
+                            } else {
+                                return o1.compareToIgnoreCase(o2);
+                            }
                         }
-
                     }
                 };
         }
@@ -288,12 +377,15 @@ public class AlignmentPacker {
 
         AlignmentTrack.GroupOption groupBy = renderOptions.groupByOption;
         String tag = renderOptions.getGroupByTag();
+        Range pos = renderOptions.getGroupByBaseAtPos();
 
         switch (groupBy) {
             case STRAND:
-                return String.valueOf(al.isNegativeStrand());
+                return al.isNegativeStrand() ? "-" : "+";
             case SAMPLE:
                 return al.getSample();
+            case LIBRARY:
+                return al.getLibrary();
             case READ_GROUP:
                 return al.getReadGroup();
             case TAG:
@@ -302,7 +394,6 @@ public class AlignmentPacker {
             case FIRST_OF_PAIR_STRAND:
                 Strand strand = al.getFirstOfPairStrand();
                 String strandString = strand == Strand.NONE ? null : strand.toString();
-                System.out.println(strandString);
                 return strandString;
             case PAIR_ORIENTATION:
                 PEStats peStats = AlignmentRenderer.getPEStats(al, renderOptions);
@@ -313,15 +404,42 @@ public class AlignmentPacker {
                 return type.name();
             case MATE_CHROMOSOME:
                 ReadMate mate = al.getMate();
-                if (mate == null) return null;
-                return mate.getChr();
+                if (mate == null) {
+                    return null;
+                }
+                if (mate.isMapped() == false) {
+                    return "UNMAPPED";
+                } else {
+                    return mate.getChr();
+                }
             case SUPPLEMENTARY:
-                return String.valueOf(!al.isSupplementary());
+                return al.isSupplementary() ? "SUPPLEMENTARY" : "";
+            case BASE_AT_POS:
+                // Use a string prefix to enforce grouping rules:
+                //    1: alignments with a base at the position
+                //    2: alignments with a gap at the position
+                //    3: alignment that do not overlap the position (or are on a different chromosome)
+
+                if (al.getChr().equals(pos.getChr()) &&
+                    al.getAlignmentStart() <= pos.getStart() &&
+                    al.getAlignmentEnd() > pos.getStart()) {
+
+                    byte[] baseAtPos = new byte[] {al.getBase(pos.getStart())};
+                    if (baseAtPos[0] == 0) { // gap at position
+                        return "2:";
+                    }
+                    else { // base at position
+                        return "1:" + new String(baseAtPos);
+                    }
+                }
+                else { // does not overlap position
+                    return "3:";
+                }
         }
         return null;
     }
 
-    static interface BucketCollection {
+    interface BucketCollection {
 
         Range getRange();
 
@@ -386,14 +504,13 @@ public class AlignmentPacker {
             while (bucketNumber < bucketArray.length) {
 
                 if (bucketNumber < 0) {
-                    System.out.println();
+                    log.info("Negative bucket number: " + bucketNumber);
                 }
 
                 bucket = bucketArray[bucketNumber];
                 if (bucket != null) {
                     if (bucket.isEmpty()) {
                         bucketArray[bucketNumber] = null;
-                        bucket = null;
                     } else {
                         return bucket;
                     }

@@ -1,31 +1,42 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.track;
 
+import htsjdk.tribble.AbstractFeatureReader;
 import org.broad.igv.Globals;
 import org.broad.igv.data.AbstractDataSource;
-import org.broad.igv.data.DataSource;
 import org.broad.igv.data.DataTile;
 import org.broad.igv.feature.BasicFeature;
 import org.broad.igv.feature.*;
 import org.broad.igv.feature.genome.Genome;
 import org.broad.igv.feature.tribble.*;
-import org.broad.igv.tdf.TDFDataSource;
-import org.broad.igv.tdf.TDFReader;
 import org.broad.igv.ui.IGV;
 import org.broad.igv.ui.panel.ReferenceFrame;
 import org.broad.igv.ui.util.IndexCreatorDialog;
 import org.broad.igv.util.FileUtils;
-import org.broad.igv.util.ParsingUtils;
 import org.broad.igv.util.ResourceLocator;
 import org.broad.igv.util.RuntimeUtils;
 import org.broad.igv.util.collections.CollUtils;
@@ -44,7 +55,6 @@ import java.util.*;
 abstract public class TribbleFeatureSource implements org.broad.igv.track.FeatureSource {
 
     IGVFeatureReader reader;
-    DataSource coverageSource;
     boolean isVCF;
     Genome genome;
 
@@ -67,13 +77,12 @@ abstract public class TribbleFeatureSource implements org.broad.igv.track.Featur
         boolean indexExists = FileUtils.resourceExists(idxPath);
 
         // Optionally let the user create an index.
-        final int tenMB = 10000000;
+        final int hundredMB = 100000000;
         final int oneGB = 1000000000;
         long size = FileUtils.getLength(locator.getPath());
-        final boolean indexRequired =
-                (VariantTrack.isVCF(locator.getTypeString()) && size > tenMB) || size > oneGB;
+        final boolean indexRequired =  size > oneGB;
         if (!Globals.isHeadless() && locator.isLocal() && !locator.getPath().endsWith(".gz") && !indexExists) {
-            if (size > tenMB) {
+            if (size > hundredMB) {
                 createIndex(locator, indexRequired);   // Note, might return null.
             }
         }
@@ -103,7 +112,8 @@ abstract public class TribbleFeatureSource implements org.broad.igv.track.Featur
         File newIdxFile = new File(locator.getPath() + ".idx");
         String messageText = "An index file for " + baseFile.getAbsolutePath() + " could not " +
                 "be located. An index is " + (indexRequired ? "required" : "recommended") +
-                " to view files of this size.   Click \"Go\" to create one now.";
+                " to view files of this size.   Click \"Go\" to create one now or \"Cancel" +
+                " to proceed without an index.";
         IndexCreatorDialog dialog = IndexCreatorDialog.createShowDialog(IGV.getMainFrame(), baseFile, newIdxFile, messageText);
         return (Index) dialog.getIndex();
     }
@@ -119,10 +129,6 @@ abstract public class TribbleFeatureSource implements org.broad.igv.track.Featur
         this.reader = useCache ?
                 new CachingFeatureReader(reader, 5, featureWindowSize) :
                 new TribbleReaderWrapper(reader);
-
-        initCoverageSource(locator.getPath() + ".tdf");
-
-
     }
 
     protected abstract int estimateFeatureWindowSize(FeatureReader reader);
@@ -150,13 +156,6 @@ abstract public class TribbleFeatureSource implements org.broad.igv.track.Featur
         return header;
     }
 
-    private void initCoverageSource(String covPath) {
-        if (ParsingUtils.pathExists(covPath)) {
-            TDFReader reader = TDFReader.getReader(covPath);
-            coverageSource = new TDFDataSource(reader, 0, "", genome);
-        }
-    }
-
     static class IndexedFeatureSource extends TribbleFeatureSource {
 
 
@@ -169,14 +168,14 @@ abstract public class TribbleFeatureSource implements org.broad.igv.track.Featur
                 Collection<String> seqNames = reader.getSequenceNames();
                 if (seqNames != null) {
                     for (String seqName : seqNames) {
-                        String igvChr = genome.getChromosomeAlias(seqName);
+                        String igvChr = genome.getCanonicalChrName(seqName);
                         if (igvChr != null && !igvChr.equals(seqName)) {
                             chrNameMap.put(igvChr, seqName);
                         }
                     }
                 }
             }
-       }
+        }
 
 
         @Override
@@ -205,8 +204,7 @@ abstract public class TribbleFeatureSource implements org.broad.igv.track.Featur
          */
         @Override
         public List<LocusScore> getCoverageScores(String chr, int start, int end, int zoom) {
-            return coverageSource == null ? null :
-                    coverageSource.getSummaryScoresForRange(chr, start, end, zoom);
+            return null;
         }
 
 
@@ -225,10 +223,9 @@ abstract public class TribbleFeatureSource implements org.broad.igv.track.Featur
         protected int estimateFeatureWindowSize(FeatureReader reader) {
 
             // Simple formula for VCF.  Appropriate for human 1KG/dbSNp, probably overly conservative otherwise
-            if(isVCF) {
-                 return 10000;
-            }
-            else {
+            if (isVCF) {
+                return 10000;
+            } else {
 
             }
             CloseableTribbleIterator<htsjdk.tribble.Feature> iter = null;
@@ -295,21 +292,29 @@ abstract public class TribbleFeatureSource implements org.broad.igv.track.Featur
             super(locator, basicReader, codec, genome, false);
 
             featureMap = new HashMap<String, List<Feature>>(25);
-            Iterator<Feature> iter = reader.iterator();
-            while (iter.hasNext()) {
-                Feature f = iter.next();
-                if (f == null) continue;
+            Iterator<Feature> iter = null;
 
-                String seqName = f.getChr();
-                String igvChr = genome == null ? seqName : genome.getChromosomeAlias(seqName);
+            try {
+                iter = reader.iterator();
+                while (iter.hasNext()) {
+                    Feature f = iter.next();
+                    if (f == null) continue;
 
-                List<Feature> featureList = featureMap.get(igvChr);
-                if (featureList == null) {
-                    featureList = new ArrayList();
-                    featureMap.put(igvChr, featureList);
+                    String seqName = f.getChr();
+                    String igvChr = genome == null ? seqName : genome.getCanonicalChrName(seqName);
+
+                    List<Feature> featureList = featureMap.get(igvChr);
+                    if (featureList == null) {
+                        featureList = new ArrayList();
+                        featureMap.put(igvChr, featureList);
+                    }
+                    featureList.add(f);
+                    if (f instanceof NamedFeature) FeatureDB.addFeature((NamedFeature) f, genome);
                 }
-                featureList.add(f);
-                if (f instanceof NamedFeature) FeatureDB.addFeature((NamedFeature) f, genome);
+            } finally {
+                if (iter instanceof CloseableTribbleIterator) {
+                    ((CloseableTribbleIterator) iter).close();
+                }
             }
 
             for (List<Feature> featureList : featureMap.values()) {

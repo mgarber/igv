@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.track;
@@ -83,18 +97,20 @@ public class GFFFeatureSource implements org.broad.igv.track.FeatureSource {
     public static class GFFCombiner {
 
         List<Feature> igvFeatures;
-        Map<String, BasicFeature> gffFeatures;
+        Map<String, GFFFeature> gffFeatures;
         List<BasicFeature> gffExons;
         Map<String, GFFCdsCltn> gffCdss;
         List<BasicFeature> gffUtrs;
+        List<BasicFeature> gffMrnaParts;
 
         public GFFCombiner() {
             int numElements = 10000;
             igvFeatures = new ArrayList<Feature>(numElements);
-            gffFeatures = new HashMap<String, BasicFeature>(numElements);
+            gffFeatures = new HashMap<String, GFFFeature>(numElements);
             gffExons = new ArrayList<BasicFeature>(numElements);
             gffCdss = new LinkedHashMap<String, GFFCdsCltn>(numElements);
             gffUtrs = new ArrayList<BasicFeature>(numElements);
+            gffMrnaParts = new ArrayList<>(numElements);
 
         }
 
@@ -118,21 +134,24 @@ public class GFFFeatureSource implements org.broad.igv.track.FeatureSource {
             String featureType = bf.getType();
             String[] parentIDs = bf.getParentIds();
             String id = bf.getIdentifier();
-            if (SequenceOntology.exonTypes.contains(featureType) && parentIDs != null) {
-                gffExons.add(bf);
-            } else if (SequenceOntology.utrTypes.contains(featureType) && parentIDs != null) {
-                gffUtrs.add(bf);
-            } else if (SequenceOntology.cdsTypes.contains(featureType) && parentIDs != null) {
-                for (String pid : parentIDs) {
-                    GFFCdsCltn cds = gffCdss.get(pid);
-                    if (cds == null) {
-                        cds = new GFFCdsCltn(pid);
-                        gffCdss.put(pid, cds);
+            if (SequenceOntology.mrnaParts.contains(featureType) && parentIDs != null) {
+                gffMrnaParts.add(bf);
+                if (SequenceOntology.exonTypes.contains(featureType) && parentIDs != null) {
+                    gffExons.add(bf);
+                } else if (SequenceOntology.utrTypes.contains(featureType) && parentIDs != null) {
+                    gffUtrs.add(bf);
+                } else if (SequenceOntology.cdsTypes.contains(featureType) && parentIDs != null) {
+                    for (String pid : parentIDs) {
+                        GFFCdsCltn cds = gffCdss.get(pid);
+                        if (cds == null) {
+                            cds = new GFFCdsCltn(pid);
+                            gffCdss.put(pid, cds);
+                        }
+                        cds.addPart(bf);
                     }
-                    cds.addPart(bf);
                 }
             } else if (id != null) {
-                gffFeatures.put(id, bf);
+                gffFeatures.put(id, new GFFFeature(bf));
             } else {
                 igvFeatures.add(bf); // Just use this feature  as is.
             }
@@ -141,11 +160,11 @@ public class GFFFeatureSource implements org.broad.igv.track.FeatureSource {
 
         public List<Feature> combineFeatures() {
 
-
+            // Exons
             for (BasicFeature gffExon : gffExons) {
                 final String[] parentIds = gffExon.getParentIds();
                 for (String parentId : parentIds) {
-                    BasicFeature parent = gffFeatures.get(parentId);
+                    GFFFeature parent = gffFeatures.get(parentId);
                     if (parent == null) {
                         parent = createParent(gffExon);
                         parent.setIdentifier(parentId);
@@ -162,7 +181,7 @@ public class GFFFeatureSource implements org.broad.igv.track.FeatureSource {
             // Now process utrs.  Modify exon if its already defined, create a new one if not.
             for (BasicFeature utr : gffUtrs) {
                 for (String parentId : utr.getParentIds()) {
-                    BasicFeature parent = gffFeatures.get(parentId);
+                    GFFFeature parent = gffFeatures.get(parentId);
                     if (parent == null) {
                         parent = createParent(utr);
                         parent.setIdentifier(parentId);
@@ -174,15 +193,15 @@ public class GFFFeatureSource implements org.broad.igv.track.FeatureSource {
                 }
             }
 
-            // Finally overlay cdss
+            // Overlay cdss
             for (GFFCdsCltn gffCdsCltn : gffCdss.values()) {
 
                 // Get the parent.
                 String parentId = gffCdsCltn.getParentId();
-                BasicFeature parent = gffFeatures.get(parentId);
+                GFFFeature parent = gffFeatures.get(parentId);
                 if (parent == null) {
                     // Create a "dummy" transcript for the orphaned cds records
-                    parent = new BasicFeature(gffCdsCltn.chr, gffCdsCltn.start, gffCdsCltn.end, gffCdsCltn.strand);
+                    parent = new GFFFeature(gffCdsCltn.chr, gffCdsCltn.start, gffCdsCltn.end, gffCdsCltn.strand);
                     parent.setIdentifier(parentId);
                     parent.setName(parentId);
                     gffFeatures.put(parentId, parent);
@@ -218,6 +237,22 @@ public class GFFFeatureSource implements org.broad.igv.track.FeatureSource {
                 }
             }
 
+
+            // Merge attributes (column 9)
+            for (BasicFeature mrnaPart : gffMrnaParts) {
+                for (String parentId : mrnaPart.getParentIds()) {
+                    GFFFeature parent = gffFeatures.get(parentId);
+                    if (parent == null) {
+                        // This shouldn't happen, but if it does use feature directly
+                        igvFeatures.add(mrnaPart);
+                    } else {
+                        parent.mergeAttributes(mrnaPart);
+                    }
+
+                }
+            }
+
+
             igvFeatures.addAll(gffFeatures.values());
 
 
@@ -240,10 +275,10 @@ public class GFFFeatureSource implements org.broad.igv.track.FeatureSource {
 
         }
 
-        private BasicFeature createParent(BasicFeature gffExon) {
-            BasicFeature parent;
-            parent = new BasicFeature(gffExon.getChr(), gffExon.getStart(), gffExon.getEnd(), gffExon.getStrand());
-            return parent;
+        private GFFFeature createParent(BasicFeature gffExon) {
+
+            return new GFFFeature(gffExon.getChr(), gffExon.getStart(), gffExon.getEnd(), gffExon.getStrand());
+
         }
 
 

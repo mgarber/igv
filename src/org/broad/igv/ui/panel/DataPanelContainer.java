@@ -1,20 +1,34 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.ui.panel;
 
 import org.apache.log4j.Logger;
-import org.broad.igv.PreferenceManager;
 import org.broad.igv.exceptions.DataLoadException;
-import org.broad.igv.track.TrackGroup;
+import org.broad.igv.renderer.DataRange;
+import org.broad.igv.track.*;
 import org.broad.igv.ui.IGV;
 import org.broad.igv.ui.MessageCollection;
 import org.broad.igv.ui.util.MessageUtils;
@@ -26,9 +40,7 @@ import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
 import java.awt.dnd.*;
 import java.io.File;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Comparator;
+import java.util.*;
 import java.util.List;
 
 /**
@@ -39,7 +51,15 @@ public class DataPanelContainer extends TrackPanelComponent implements Paintable
 
     private static Logger log = Logger.getLogger(DataPanelContainer.class);
 
+    static int lastStateHash = 0;   // TODO -- could synchronization be an issue?
+
     TrackPanel parent;
+
+
+    public static void resetStateHash() {
+        lastStateHash = 0;
+    }
+
 
     public DataPanelContainer(TrackPanel trackPanel) {
         super(trackPanel);
@@ -127,14 +147,16 @@ public class DataPanelContainer extends TrackPanelComponent implements Paintable
 
     @Override
     protected void paintChildren(Graphics g) {
+
+        autoscale();
+
         super.paintChildren(g);
-        if(IGV.getInstance().isRulerEnabled()) {
+        if (IGV.getInstance().isRulerEnabled()) {
             int start = MouseInfo.getPointerInfo().getLocation().x - getLocationOnScreen().x;
             g.setColor(Color.BLACK);
             g.drawLine(start, 0, start, getHeight());
         }
     }
-
 
 
     private class FileDropTargetListener implements DropTargetListener {
@@ -232,6 +254,111 @@ public class DataPanelContainer extends TrackPanelComponent implements Paintable
             // in this program, we accept all flavors
             return (event.getDropAction() & DnDConstants.ACTION_COPY_OR_MOVE) != 0;
         }
+    }
+
+
+    private void autoscale() {
+
+        int stateHash = FrameManager.getStateHash();
+
+      //  if(lastFrameStateHash == stateHash) return;
+
+        lastStateHash = stateHash;
+
+        final Collection<Track> trackList = IGV.getInstance().getAllTracks();
+
+        Map<String, List<Track>> autoscaleGroups = new HashMap<String, List<Track>>();
+
+        for (Track track : trackList) {
+
+            if(!track.isVisible()) continue;
+
+            String asGroup = track.getAttributeValue(AttributeManager.GROUP_AUTOSCALE);
+            if (asGroup != null) {
+                if (!autoscaleGroups.containsKey(asGroup)) {
+                    autoscaleGroups.put(asGroup, new ArrayList<Track>());
+                }
+                autoscaleGroups.get(asGroup).add(track);
+            } else if (track.getAutoScale()) {
+                autoscaleGroup(Arrays.asList(track));
+            }
+
+
+        }
+
+        if (autoscaleGroups.size() > 0) {
+            for (List<Track> tracks : autoscaleGroups.values()) {
+                autoscaleGroup(tracks);
+            }
+        }
+    }
+
+    private void autoscaleGroup(List<Track> trackList) {
+
+
+        List<ReferenceFrame> frames =
+                FrameManager.isGeneListMode() ? FrameManager.getFrames() :
+                        Arrays.asList(FrameManager.getDefaultFrame());
+
+
+        List<Range> inViewRanges = new ArrayList<Range>();
+
+        synchronized (trackList) {
+            for (Track track : trackList) {
+                if (track instanceof ScalableTrack) {
+                    for (ReferenceFrame frame : frames) {
+                        Range range = ((ScalableTrack) track).getInViewRange(frame);
+                        if (range != null) {
+                            inViewRanges.add(range);
+                        }
+                    }
+                }
+            }
+
+            if (inViewRanges.size() > 0) {
+
+                Range inter = computeScale(inViewRanges);
+
+                for (Track track : trackList) {
+
+                    DataRange dr = track.getDataRange();
+                    float min = Math.min(0, inter.min);
+                    float base = Math.max(min, dr.getBaseline());
+                    float max = inter.max;
+                    // Pathological case where min ~= max  (no data in view)
+                    if (max - min <= (2 * Float.MIN_VALUE)) {
+                        max = min + 1;
+                    }
+
+                    DataRange newDR = new DataRange(min, base, max, dr.isDrawBaseline());
+                    newDR.setType(dr.getType());
+                    track.setDataRange(newDR);
+
+                }
+            }
+        }
+    }
+
+
+    public static Range computeScale(List<Range> ranges) {
+
+        float min = 0;
+        float max = 0;
+
+        if (ranges.size() > 0) {
+            max = ranges.get(0).max;
+            min = ranges.get(0).min;
+
+            for (int i = 1; i < ranges.size(); i++) {
+
+                Range r = ranges.get(i);
+                max = Math.max(r.max, max);
+                min = Math.min(r.min, min);
+
+            }
+        }
+
+        return new Range(min, max);
     }
 
 

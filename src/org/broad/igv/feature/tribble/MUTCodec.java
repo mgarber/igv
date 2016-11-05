@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.feature.tribble;
@@ -51,6 +65,7 @@ public class MUTCodec extends AsciiFeatureCodec<Mutation> {
     private int refAlleleColumn;
     private int tumorAllele1Column;
     private int tumorAllele2Column;
+    private int errorCount = 0;
 
 
     public MUTCodec(String path, Genome genome) {
@@ -93,7 +108,7 @@ public class MUTCodec extends AsciiFeatureCodec<Mutation> {
                 isMAF = headers.length >= 16 && headers[0].equalsIgnoreCase("Hugo_Symbol");
                 setColumns(isMAF);
                 return null;
-            }else{
+            } else {
                 throw new RuntimeException(String.format("Not enough columns in header line found in %s: %s", path, nextLine));
             }
 
@@ -117,62 +132,79 @@ public class MUTCodec extends AsciiFeatureCodec<Mutation> {
     @Override
     public Mutation decode(String line) {
 
-        if(line.startsWith("#") || line.startsWith("Hugo_Symbol")) return null;
+        if (line.startsWith("#") || line.startsWith("Hugo_Symbol")) {
+            return null;
+        } else {
 
-        String[] tokens = Globals.tabPattern.split(line);
+            String[] tokens = Globals.tabPattern.split(line);
 
-        String chr = genome == null ? tokens[chrColumn].trim() : genome.getChromosomeAlias(tokens[chrColumn].trim());
+            String chr = genome == null ? tokens[chrColumn].trim() : genome.getCanonicalChrName(tokens[chrColumn].trim());
 
-        int start;
-        try {
-            start = Integer.parseInt(tokens[startColumn].trim());
-        } catch (NumberFormatException e) {
-            throw new DataLoadException("Column " + (startColumn + 1) + " must be a numeric value.", path);
-        }
-
-        int end;
-        try {
-            end = Integer.parseInt(tokens[endColumn].trim());
-        } catch (NumberFormatException e) {
-            throw new DataLoadException("Column " + (endColumn + 1) + " must be a numeric value.", path);
-        }
-
-
-        // MAF files use the 1-based inclusive convention for coordinates.  The convention is not
-        // specified for MUT files, and it appears both conventions have been used.  We can detect
-        // the convention used for single base mutations by testing start == end.
-        if (isMAF || (start == end)) {
-            start--;
-        }
-
-        String sampleId = tokens[sampleColumn].trim();
-        String type = tokens[typeColumn].trim();
-
-        MultiMap<String, String> attributes = new MultiMap();
-        int n = Math.min(headers.length, tokens.length);
-        for (int i = 0; i < n; i++) {
-            String key = headers[i];
-            String value = tokens[i];
-            if (value.length() > 0) {
-                attributes.put(key, value);
+            int start;
+            try {
+                start = Integer.parseInt(tokens[startColumn].trim());
+            } catch (NumberFormatException e) {
+                errorCount++;
+                if(errorCount > 100) {
+                    throw new DataLoadException("Column " + (startColumn + 1) + " must be a numeric value.", path);
+                }
+                else {
+                    log.info("Error parsing line: " + line);
+                    return null;
+                }
             }
-        }
+
+            int end;
+            try {
+                end = Integer.parseInt(tokens[endColumn].trim());
+            } catch (NumberFormatException e) {
+                errorCount++;
+                if(errorCount > 100) {
+                    throw new DataLoadException("Column " + (endColumn + 1) + " must be a numeric value.", path);
+                }
+                else {
+                    log.info("Error parsing line: " + line);
+                    return null;
+                }
+            }
 
 
-        Mutation mut = new Mutation(sampleId, chr, start, end, type);
-        mut.setAttributes(attributes);
+            // MAF files use the 1-based inclusive convention for coordinates.  The convention is not
+            // specified for MUT files, and it appears both conventions have been used.  We can detect
+            // the convention used for single base mutations by testing start == end.
+            if (isMAF || (start == end)) {
+                start--;
+            }
 
-        if (refAlleleColumn > 0) {
-            mut.setRefAllele(tokens[refAlleleColumn].trim());
-        }
-        if (tumorAllele1Column > 0) {
-            mut.setAltAllele1(tokens[tumorAllele1Column].trim());
-        }
-        if (tumorAllele2Column > 0) {
-            mut.setAltAllele2(tokens[tumorAllele2Column].trim());
-        }
+            String sampleId = tokens[sampleColumn].trim();
+            String type = tokens[typeColumn].trim();
 
-        return mut;
+            MultiMap<String, String> attributes = new MultiMap();
+            int n = Math.min(headers.length, tokens.length);
+            for (int i = 0; i < n; i++) {
+                String key = headers[i];
+                String value = tokens[i];
+                if (value.length() > 0) {
+                    attributes.put(key, value);
+                }
+            }
+
+
+            Mutation mut = new Mutation(sampleId, chr, start, end, type);
+            mut.setAttributes(attributes);
+
+            if (refAlleleColumn > 0) {
+                mut.setRefAllele(tokens[refAlleleColumn].trim());
+            }
+            if (tumorAllele1Column > 0) {
+                mut.setAltAllele1(tokens[tumorAllele1Column].trim());
+            }
+            if (tumorAllele2Column > 0) {
+                mut.setAltAllele2(tokens[tumorAllele2Column].trim());
+            }
+
+            return mut;
+        }
     }
 
 
@@ -211,7 +243,7 @@ public class MUTCodec extends AsciiFeatureCodec<Mutation> {
         {
             //Only want pathLC when checking extension, so we limit its scope
             String typeStringLC = locator.getTypeString().toLowerCase();
-            if(typeStringLC.endsWith(".maf.annotated")) {
+            if (typeStringLC.endsWith(".maf.annotated")) {
                 // TCGA extension
                 return true;
             }
@@ -220,7 +252,7 @@ public class MUTCodec extends AsciiFeatureCodec<Mutation> {
         }
         if (ext.equals("mut")) {
             return true;
-        } else if(ext.equals("maf")) {
+        } else if (ext.equals("maf")) {
 
             BufferedReader reader = null;
             String path = locator.getPath();
@@ -251,8 +283,7 @@ public class MUTCodec extends AsciiFeatureCodec<Mutation> {
                     }
                 }
             }
-        }
-        else {
+        } else {
             return false;
         }
 
@@ -262,7 +293,7 @@ public class MUTCodec extends AsciiFeatureCodec<Mutation> {
     @Override
     public boolean canDecode(String path) {
         String fn = path.toLowerCase();
-        if(fn.endsWith(".gz")) fn = fn.substring(0, fn.length()-3);
+        if (fn.endsWith(".gz")) fn = fn.substring(0, fn.length() - 3);
         return fn.endsWith(".narrowpeak") || fn.endsWith(".broadpeak");
     }
 }

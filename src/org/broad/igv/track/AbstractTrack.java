@@ -1,13 +1,28 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
+
 package org.broad.igv.track;
 
 //~--- non-JDK imports --------------------------------------------------------
@@ -133,11 +148,11 @@ public abstract class AbstractTrack implements Track {
 
     @XmlJavaTypeAdapter(SessionXmlAdapters.Color.class)
     @XmlAttribute(name = "color")
-    private Color posColor = Color.blue.darker();
+    protected Color posColor = Color.blue.darker();
 
     @XmlJavaTypeAdapter(SessionXmlAdapters.Color.class)
     @XmlAttribute
-    private Color altColor = posColor;
+    protected Color altColor = posColor;
 
     @XmlAttribute(name = "featureVisibilityWindow")
     protected int visibilityWindow = -1;
@@ -152,7 +167,7 @@ public abstract class AbstractTrack implements Track {
     protected DataRange dataRange;
 
     @SubtlyImportant
-    private AbstractTrack() {
+    protected AbstractTrack() {
     }
 
     public AbstractTrack(
@@ -236,7 +251,7 @@ public abstract class AbstractTrack implements Track {
     }
 
     @Override
-    public void load(RenderContext context) {
+    public void load(ReferenceFrame referenceFrame) {
         // No-op, to be overriden by subclasses
     }
 
@@ -268,28 +283,6 @@ public abstract class AbstractTrack implements Track {
         }
     }
 
-
-    protected int lastRenderY = -1;
-    /**
-     * Render the components which should only be rendered once
-     * for a give y-value. We sometimes render tracks piecewise, but may
-     * only want to show the scale once at the left, for instance
-     * @param context
-     * @param rect
-     */
-
-    /**
-     * Return whether we have rendered anything at this Y-coordinate already
-     * @param rect
-     * @return
-     */
-    protected boolean isRepeatY(Rectangle rect){
-        return rect.y == lastRenderY;
-    }
-
-    public void resetLastY(){
-        this.lastRenderY = -1;
-    }
 
     public void renderAttributes(Graphics2D graphics, Rectangle trackRectangle, Rectangle visibleRect,
                                  List<String> names, List<MouseableRegion> mouseRegions) {
@@ -374,6 +367,12 @@ public abstract class AbstractTrack implements Track {
         String key = name.toUpperCase();
         attributes.put(key, value);
         AttributeManager.getInstance().addAttribute(getSample(), name, value);
+    }
+
+    public void removeAttribute(String name) {
+        String key = name.toUpperCase();
+        attributes.remove(key);
+        AttributeManager.getInstance().removeAttribute(getSample(), name);
     }
 
 
@@ -593,7 +592,7 @@ public abstract class AbstractTrack implements Track {
     protected boolean openTooltipWindow(TrackClickEvent e) {
         ReferenceFrame frame = e.getFrame();
         final MouseEvent me = e.getMouseEvent();
-        String popupText = getValueStringAt(frame.getChrName(), e.getChromosomePosition(), e.getMouseEvent().getY(), frame);
+        String popupText = getValueStringAt(frame.getChrName(), e.getChromosomePosition(), e.getMouseEvent().getX(), e.getMouseEvent().getY(), frame);
 
         if (popupText != null) {
 
@@ -710,6 +709,9 @@ public abstract class AbstractTrack implements Track {
         }
         if (properties.getRendererClass() != null) {
             setRendererClass(properties.getRendererClass());
+            if(properties.getRendererClass() == PointsRenderer.class) {
+                setWindowFunction(WindowFunction.none);
+            }
         }
         if (properties.getWindowingFunction() != null) {
             setWindowFunction(properties.getWindowingFunction());
@@ -756,11 +758,13 @@ public abstract class AbstractTrack implements Track {
      * @return
      */
     public ContinuousColorScale getColorScale() {
+
         if (colorScale == null) {
 
             if (IGV.hasInstance()) {
                 ContinuousColorScale defaultScale = IGV.getInstance().getSession().getColorScale(trackType);
                 if (defaultScale != null) {
+                    colorScale = defaultScale;
                     return defaultScale;
                 }
             }
@@ -829,6 +833,10 @@ public abstract class AbstractTrack implements Track {
             setName(name);
         } else if (displayName != null && displayName.length() > 0) {
             setName(displayName);
+        }
+
+        if(attributes.containsKey("visible")) {
+            this.setVisible(Boolean.parseBoolean(attributes.get("visible")));
         }
 
         // Set DataRange -- legacy (pre V3 sessions)
@@ -968,11 +976,10 @@ public abstract class AbstractTrack implements Track {
      *
      * @param chr
      * @param position
-     * @param y
-     * @param frame
-     * @return
+     * @param mouseX
+     *@param frame  @return
      */
-    public String getValueStringAt(String chr, double position, int y, ReferenceFrame frame) {
+    public String getValueStringAt(String chr, double position, int mouseX, int mouseY, ReferenceFrame frame) {
         return null;
     }
 

@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.ga4gh;
@@ -37,10 +51,14 @@ public class Ga4ghAlignmentReader implements AlignmentReader<Alignment> {
     String readsetId;
     List<String> sequenceNames;
     Ga4ghProvider provider;
+    Map<String, String> chromosomeMappings;
 
     public Ga4ghAlignmentReader(Ga4ghProvider provider, String readsetId) {
-        this.provider = provider;
+        this.provider = provider == null ? Ga4ghAPIHelper.GA4GH_GOOGLE_PROVIDER : provider;
         this.readsetId = readsetId;
+        this.chromosomeMappings = new HashMap<String, String>();
+
+
     }
 
     @Override
@@ -49,11 +67,13 @@ public class Ga4ghAlignmentReader implements AlignmentReader<Alignment> {
     }
 
     @Override
-    public List<String> getSequenceNames() {
+    public List<String> getSequenceNames() throws IOException {
 
         if (sequenceNames == null) {
             try {
                 loadMetadata();
+            } catch (IOException e) {
+                throw e;
             } catch (Exception e) {
                 log.error("Error fetching metadata", e);
             }
@@ -76,12 +96,46 @@ public class Ga4ghAlignmentReader implements AlignmentReader<Alignment> {
         throw new RuntimeException("Iterating over ga4gh datasets is not supported");
     }
 
+    /**
+     * Return an iterator over alignments overlapping the given region.  We first try the sequence name as given,
+     * then try an alias if we have one.  This is to handle the common 1 vs chr1 naming problem stemming from
+     * competing conventions.
+     *
+     * @param sequence
+     * @param start     0-based start location
+     * @param end       0-based, exclusive-end coordinate
+     * @param contained
+     * @return
+     * @throws IOException
+     */
     @Override
     public CloseableIterator<Alignment> query(String sequence, int start, int end, boolean contained) throws IOException {
 
-        List<Alignment> alignmentList = Ga4ghAPIHelper.searchReads(provider, readsetId, sequence, start, end);
+        boolean sequenceNameConfirmed = false;
+        if (chromosomeMappings.containsKey(sequence)) {
+            sequence = chromosomeMappings.get(sequence);
+            sequenceNameConfirmed = true;
+        }
 
-        return alignmentList == null ? null : new MIterator(alignmentList);
+        boolean handleError = sequenceNameConfirmed;
+
+        List<Alignment> alignmentList = Ga4ghAPIHelper.searchReads(provider, readsetId, sequence, start, end, handleError);
+
+        if (alignmentList != null) {
+            chromosomeMappings.put(sequence, sequence);
+            return new MIterator(alignmentList);
+        } else if (sequenceNameConfirmed == false && COMMON_ALIASES.containsKey(sequence)) {
+            String altSequence = COMMON_ALIASES.get(sequence);
+            log.info("Sequence \"" + sequence + "\" failed.  Trying \"" + altSequence + "\"");
+            alignmentList = Ga4ghAPIHelper.searchReads(provider, readsetId, altSequence, start, end, true);
+            if (alignmentList != null) {
+                chromosomeMappings.put(sequence, altSequence);
+            }
+            return alignmentList == null ? null : new MIterator(alignmentList);
+        } else {
+            return null;
+        }
+
     }
 
     @Override
@@ -91,11 +145,18 @@ public class Ga4ghAlignmentReader implements AlignmentReader<Alignment> {
 
     private void loadMetadata() throws IOException {
 
-        String authKey = provider.authKey;
+        String authKey = provider.apiKey;
         String baseURL = provider.baseURL;
+
         URL url = new URL(baseURL + "/readgroupsets/" + readsetId + (authKey == null ? "" : "?key=" + authKey));   // TODO -- field selection?
 
-        String result = HttpUtils.getInstance().getContentsAsString(url);
+        Map<String, String> headers = new HashMap<String, String>();
+        String token = OAuthUtils.getInstance().getAccessToken();
+        if (token != null) {
+            headers.put("Authorization", "Bearer " + token);
+        }
+
+        String result = HttpUtils.getInstance().getContentsAsString(url, headers);
         JsonParser parser = new JsonParser();
         JsonObject root = parser.parse(result).getAsJsonObject();
 
@@ -143,6 +204,22 @@ public class Ga4ghAlignmentReader implements AlignmentReader<Alignment> {
         public void remove() {
             iter.remove();
         }
+    }
+
+
+    static Map<String, String> COMMON_ALIASES = new HashMap<String, String>();
+
+    static {
+        for (int i = 1; i <= 23; i++) {
+            COMMON_ALIASES.put(("" + i), ("chr" + i));
+            COMMON_ALIASES.put(("chr" + i), ("" + i));
+        }
+        COMMON_ALIASES.put("chrX", "X");
+        COMMON_ALIASES.put("X", "chrX");
+        COMMON_ALIASES.put("chrY", "Y");
+        COMMON_ALIASES.put("Y", "chrY");
+        COMMON_ALIASES.put("chrM", "MT");
+        COMMON_ALIASES.put("MT", "chrM");
     }
 
 }

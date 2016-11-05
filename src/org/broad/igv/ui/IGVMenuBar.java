@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.ui;
@@ -32,6 +46,7 @@ import org.broad.igv.gs.GSUtils;
 import org.broad.igv.lists.GeneListManagerUI;
 import org.broad.igv.lists.VariantListManager;
 import org.broad.igv.tools.IgvToolsGui;
+import org.broad.igv.tools.motiffinder.MotifFinderPlugin;
 import org.broad.igv.track.CombinedDataSourceDialog;
 import org.broad.igv.ui.action.*;
 import org.broad.igv.ui.legend.LegendDialog;
@@ -41,6 +56,7 @@ import org.broad.igv.ui.panel.ReferenceFrame;
 import org.broad.igv.ui.panel.ReorderPanelsDialog;
 import org.broad.igv.ui.util.*;
 import org.broad.igv.util.*;
+import org.broad.igv.util.blat.BlatClient;
 import org.broad.igv.util.encode.EncodeFileBrowser;
 
 import javax.swing.*;
@@ -75,7 +91,6 @@ public class IGVMenuBar extends JMenuBar {
     public static final String GENOMESPACE_REG_TOOLTIP = "Register for GenomeSpace";
     public static final String GENOMESPACE_REG_PAGE = "http://www.genomespace.org/register";
 
-    private JMenu fileMenu;
     private JMenu extrasMenu;
     private FilterTracksMenuAction filterTracksAction;
     private JMenu viewMenu;
@@ -147,8 +162,8 @@ public class IGVMenuBar extends JMenuBar {
     private List<AbstractButton> createMenus() {
 
         List<AbstractButton> menus = new ArrayList<AbstractButton>();
-        createFileMenu();
-        menus.add(fileMenu);
+
+        menus.add(createFileMenu());
         menus.add(createGenomesMenu());
         menus.add(createViewMenu());
         menus.add(createTracksMenu());
@@ -162,10 +177,8 @@ public class IGVMenuBar extends JMenuBar {
         //extrasMenu.setVisible(false);
         menus.add(extrasMenu);
 
-
         googleMenu = createGoogleMenu();
-        googleMenu.setVisible(PreferenceManager.getInstance().get(PreferenceManager.GOOGLE_API_KEY) != null ||
-                PreferenceManager.getInstance().getAsBoolean(PreferenceManager.ENABLE_GOOGLE_MENU));
+        googleMenu.setVisible(PreferenceManager.getInstance().getAsBoolean(PreferenceManager.ENABLE_GOOGLE_MENU));
         menus.add(googleMenu);
 
         menus.add(createHelpMenu());
@@ -189,7 +202,6 @@ public class IGVMenuBar extends JMenuBar {
         menuItems.add(MenuAndToolbarUtils.createMenuItem(menuAction));
 
         // igvtools
-        //menuItems.add(new JSeparator());
         menuAction = new SortTracksMenuAction("Run igvtools...", KeyEvent.VK_T, igv) {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -198,13 +210,31 @@ public class IGVMenuBar extends JMenuBar {
         };
         menuItems.add(MenuAndToolbarUtils.createMenuItem(menuAction));
 
+        // Motif finder
+        menuItems.add(MotifFinderPlugin.getMenuItem());
+
+        // BLAT
+        menuItems.add(BlatClient.getMenuItem());
+
+        // Combine data tracks
+        JMenuItem combineDataItem = new JMenuItem("Combine Data Tracks");
+        combineDataItem.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                CombinedDataSourceDialog dialog = new CombinedDataSourceDialog(IGV.getMainFrame());
+                dialog.setVisible(true);
+            }
+        });
+        menuItems.add(combineDataItem);
+
+
         List<JComponent> otherToolMenus = igv.getOtherToolMenus();
+        menuItems.add(new JSeparator());
         if (otherToolMenus.size() > 0) {
             for (JComponent entry : otherToolMenus) {
                 menuItems.add(entry);
             }
         }
-        //menuItems.add(new JSeparator());
 
 
         //-------------------------------------//
@@ -219,7 +249,7 @@ public class IGVMenuBar extends JMenuBar {
                 try {
                     PluginSpecReader.addCustomPlugin(pluginFi.getAbsolutePath());
                     refreshToolsMenu();
-                } catch (IOException e1) {
+                } catch (Exception e1) {
                     MessageUtils.showErrorMessage("Error loading custom cli_plugin", e1);
                 }
             }
@@ -337,16 +367,6 @@ public class IGVMenuBar extends JMenuBar {
 
         //DataTrack Math------------------------//
 
-        JMenuItem combineDataItem = new JMenuItem("Combine Data Tracks");
-        combineDataItem.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                CombinedDataSourceDialog dialog = new CombinedDataSourceDialog(IGV.getMainFrame());
-                dialog.setVisible(true);
-            }
-        });
-        menuItems.add(combineDataItem);
-
 
         //-------------------------------------//
 
@@ -369,12 +389,10 @@ public class IGVMenuBar extends JMenuBar {
     }
 
 
-    void createFileMenu() {
+    private JMenu createFileMenu() {
 
         List<JComponent> menuItems = new ArrayList<JComponent>();
         MenuAction menuAction = null;
-        //We disable certain load items when there is no genome.
-        boolean genomeLoaded = GenomeManager.getInstance().getCurrentGenome() != null;
 
         menuItems.add(new JSeparator());
 
@@ -405,19 +423,8 @@ public class IGVMenuBar extends JMenuBar {
             menuItems.add(MenuAndToolbarUtils.createMenuItem(menuAction));
         }
 
-        if (PreferenceManager.getInstance().get(PreferenceManager.GOOGLE_API_KEY) != null ||
-                PreferenceManager.getInstance().getAsBoolean(PreferenceManager.ENABLE_GOOGLE_MENU)) {
-            menuAction = new BrowseGa4ghAction("Load from Ga4gh...", KeyEvent.VK_G, igv);
-            menuItems.add(MenuAndToolbarUtils.createMenuItem(menuAction));
-        }
-
-        //Disable loading if no genome loaded. Something of an edge case
-        if (!genomeLoaded) {
-            for (JComponent menuItem : menuItems) {
-                menuItem.setEnabled(false);
-            }
-        }
-
+        menuAction = new BrowseGa4ghAction("Load from Ga4gh...", KeyEvent.VK_G, igv);
+        menuItems.add(MenuAndToolbarUtils.createMenuItem(menuAction));
         menuItems.add(new JSeparator());
 
         // Session menu items
@@ -433,7 +440,6 @@ public class IGVMenuBar extends JMenuBar {
         menuAction.setToolTipText(UIConstants.SAVE_SESSION_TOOLTIP);
         JMenuItem saveSessionItem = MenuAndToolbarUtils.createMenuItem(menuAction);
         menuItems.add(saveSessionItem);
-        saveSessionItem.setEnabled(genomeLoaded);
 
         menuItems.add(new JSeparator());
 
@@ -495,14 +501,9 @@ public class IGVMenuBar extends JMenuBar {
         }
 
         MenuAction fileMenuAction = new MenuAction("File", null, KeyEvent.VK_F);
-        if (fileMenu == null) {
-            fileMenu = MenuAndToolbarUtils.createMenu(menuItems, fileMenuAction);
-        } else {
-            fileMenu.removeAll();
-            for (JComponent item : menuItems) {
-                fileMenu.add(item);
-            }
-        }
+        JMenu fileMenu = MenuAndToolbarUtils.createMenu(menuItems, fileMenuAction);
+
+        return fileMenu;
     }
 
     private void notifyGenomesAddedRemoved(List<GenomeListItem> selectedValues, boolean added) {
@@ -1011,19 +1012,6 @@ public class IGVMenuBar extends JMenuBar {
 
         MenuAction menuAction = null;
 
-        final JCheckBoxMenuItem exomeModeItem = new JCheckBoxMenuItem("Exome mode");
-        exomeModeItem.setSelected(FrameManager.isExomeMode());
-        exomeModeItem.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent actionEvent) {
-                FrameManager.setExomeMode(exomeModeItem.isSelected(), true);
-                igv.resetFrames();
-            }
-        });
-        menuItems.add(exomeModeItem);
-        menuItems.add(new JSeparator());
-
-
         // Preferences reset
         menuAction = new ResetPreferencesAction("Reset Preferences", IGV.getInstance());
         menuItems.add(MenuAndToolbarUtils.createMenuItem(menuAction));
@@ -1194,6 +1182,7 @@ public class IGVMenuBar extends JMenuBar {
                         loadReadset.setEnabled(loggedIn);
                     }
                 };
+
                 LongRunningTask.submit(runnable);
             }
 

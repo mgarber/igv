@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.sam;
@@ -38,36 +52,17 @@ import static junit.framework.Assert.assertTrue;
  */
 public class SAMWriterTest extends AbstractHeadlessTest {
 
-    private String[] getTestPaths() {
-        File indir = new File(TestUtils.DATA_DIR + "sam/");
-        File[] infiles = indir.listFiles(new FileFilter() {
-            @Override
-            public boolean accept(File pathname) {
-                String name = pathname.getAbsolutePath();
-                return name.endsWith(".bam") || name.endsWith(".sam");
-            }
-        });
-
-        List<String> inpaths = new ArrayList<String>(infiles.length);
-        for (File f : infiles) {
-            inpaths.add(f.getAbsolutePath());
-        }
-
-        return inpaths.toArray(new String[0]);
-    }
+    final static String ifile = TestUtils.DATA_DIR + "/sam/NA12878.muc1.test.sam";
 
     @Test
     public void testWriteRecordsFile() throws Exception {
-        for (String inpath : getTestPaths()) {
-            testWriteRecords(inpath, false);
-        }
+        testWriteRecords(ifile, false);
+
     }
 
     @Test
     public void testWriteRecordsStream() throws Exception {
-        for (String inpath : getTestPaths()) {
-            testWriteRecords(inpath, true);
-        }
+        testWriteRecords(ifile, true);
     }
 
     /**
@@ -100,7 +95,7 @@ public class SAMWriterTest extends AbstractHeadlessTest {
     /**
      * Test our ability to write SAM Records out.
      * We check both bam and sam output format
-     * <p/>
+     * <p>
      * If outStream is true, we use the stream writing methods of SAMWriter,
      * otherwise, file writing methods
      *
@@ -150,7 +145,7 @@ public class SAMWriterTest extends AbstractHeadlessTest {
     }
 
     @Test
-    public void testCopyBAMFile_01() throws Exception{
+    public void testCopyBAMFile_01() throws Exception {
         String sequence = "chr1";
         int end = 300000000;
         int start = end / 5 - 1;
@@ -160,7 +155,7 @@ public class SAMWriterTest extends AbstractHeadlessTest {
     }
 
     @Test
-    public void testCopyMergedBAM_01() throws Exception{
+    public void testCopyMergedBAM_01() throws Exception {
         String sequence = "chr1";
         int start = 151667156;
         int end = start + 10000;
@@ -171,7 +166,7 @@ public class SAMWriterTest extends AbstractHeadlessTest {
         tstCopyBAMFile(inlocator, sequence, start, end);
     }
 
-    public void tstCopyBAMFile(ResourceLocator inlocator, String sequence, int start, int end) throws IOException{
+    public void tstCopyBAMFile(ResourceLocator inlocator, String sequence, int start, int end) throws IOException {
 
         boolean createIndex = true;
 
@@ -191,9 +186,9 @@ public class SAMWriterTest extends AbstractHeadlessTest {
         SAMFileReader writtenReader = new SAMFileReader(new File(outPath));
         writtenReader.setValidationStringency(ValidationStringency.SILENT);
         SAMRecordIterator iter = null;
-        if(createIndex){
+        if (createIndex) {
             iter = writtenReader.queryOverlapping(sequence, start + 1, end);
-        }else{
+        } else {
             iter = writtenReader.iterator();
         }
 

@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 /*
@@ -22,7 +36,6 @@ package org.broad.igv.ui;
 import apple.dts.samplecode.osxadapter.OSXAdapter;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-import com.google.common.eventbus.Subscribe;
 import com.jidesoft.swing.JideSplitPane;
 import htsjdk.samtools.seekablestream.SeekableFileStream;
 import org.apache.log4j.Logger;
@@ -35,6 +48,7 @@ import org.broad.igv.batch.CommandListener;
 import org.broad.igv.dev.api.IGVPlugin;
 import org.broad.igv.exceptions.DataLoadException;
 import org.broad.igv.feature.Locus;
+import org.broad.igv.feature.Range;
 import org.broad.igv.feature.MaximumContigGenomeException;
 import org.broad.igv.feature.RegionOfInterest;
 import org.broad.igv.feature.genome.*;
@@ -42,11 +56,11 @@ import org.broad.igv.lists.GeneList;
 import org.broad.igv.lists.Preloader;
 import org.broad.igv.peaks.PeakCommandBar;
 import org.broad.igv.sam.AlignmentTrack;
-import org.broad.igv.sam.reader.BAMHttpReader;
 import org.broad.igv.session.IGVSessionReader;
 import org.broad.igv.session.Session;
 import org.broad.igv.session.SessionReader;
 import org.broad.igv.session.UCSCSessionReader;
+import org.broad.igv.session.IndexAwareSessionReader;
 import org.broad.igv.track.*;
 import org.broad.igv.ui.dnd.GhostGlassPane;
 import org.broad.igv.ui.event.*;
@@ -61,11 +75,14 @@ import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
+import java.awt.image.ImageObserver;
 import java.io.*;
 import java.lang.ref.SoftReference;
+import java.lang.ref.WeakReference;
 import java.lang.reflect.InvocationTargetException;
 import java.net.NoRouteToHostException;
 import java.net.URL;
+import java.net.URLDecoder;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.Future;
@@ -78,7 +95,7 @@ import static org.broad.igv.ui.WaitCursorManager.CursorToken;
  *
  * @author jrobinso
  */
-public class IGV {
+public class IGV implements IGVEventObserver {
 
     private static Logger log = Logger.getLogger(IGV.class);
     private static IGV theInstance;
@@ -124,13 +141,13 @@ public class IGV {
     private boolean isExportingSnapshot = false;
 
     // Listeners
-    Collection<SoftReference<TrackGroupEventListener>> groupListeners =
-            Collections.synchronizedCollection(new ArrayList<SoftReference<TrackGroupEventListener>>());
+    Collection<WeakReference<TrackGroupEventListener>> groupListeners =
+            Collections.synchronizedCollection(new ArrayList<>());
 
-    Collection<SoftReference<AlignmentTrackEventListener>> alignmentTrackListeners =
-            Collections.synchronizedCollection(new ArrayList<SoftReference<AlignmentTrackEventListener>>());
+    Collection<WeakReference<AlignmentTrackEventListener>> alignmentTrackListeners =
+            Collections.synchronizedCollection(new ArrayList<>());
 
-    private List<JComponent> otherToolMenus = new ArrayList<JComponent>();
+    private List<JComponent> otherToolMenus = new ArrayList<>();
     private boolean rulerEnabled;
 
     /**
@@ -149,16 +166,6 @@ public class IGV {
         return otherToolMenus;
     }
 
-    @Subscribe
-    public void receiveViewChange(ViewChange.Result e) {
-        repaintDataAndHeaderPanels();
-        repaintStatusAndZoomSlider();
-    }
-
-    @Subscribe
-    public void receiveViewChange(ViewChange.ChromosomeChangeResult e) {
-        chromosomeChangeEvent(e.chrName, false);
-    }
 
     public static IGV createInstance(Frame frame) {
         if (theInstance != null) {
@@ -317,6 +324,24 @@ public class IGV {
 
         mainFrame.setExtendedState(state);
         mainFrame.setBounds(applicationBounds);
+
+        IGVEventBus.getInstance().subscribe(ViewChange.class, this);
+    }
+
+
+    public void receiveEvent(Object event) {
+
+        if (event instanceof ViewChange) {
+            ViewChange e = (ViewChange) event;
+            if (e.type == ViewChange.Type.ChromosomeChange) {
+                chromosomeChangeEvent(e.chrName, false);
+            } else {
+                repaintDataAndHeaderPanels();
+                repaintStatusAndZoomSlider();
+            }
+        } else {
+            log.info("Unknown event type: " + event.getClass());
+        }
     }
 
 
@@ -575,12 +600,12 @@ public class IGV {
                         GenomeListItem newItem = new GenomeListItem(oldItem.getDisplayableName(), newLocation.getAbsolutePath(), oldItem.getId());
                         //Checking to see if it has a downloaded sequence might seem redundant,
                         //but if the user cancels a download we want to use the oldItem
-                        if(newItem.hasDownloadedSequence()){
+                        if (newItem.hasDownloadedSequence()) {
                             selectedValues = Arrays.asList(newItem);
                         }
                     }
 
-                    if(selectedValues.size() > 0){
+                    if (selectedValues.size() > 0) {
                         GenomeManager.getInstance().addGenomeItems(selectedValues, false);
                         getContentPane().getCommandBar().refreshGenomeListComboBox();
                         selectGenomeFromList(selectedValues.get(0).getId());
@@ -611,8 +636,12 @@ public class IGV {
             // Display the dialog
             file = FileDialogUtils.chooseFile("Load Genome", importDirectory, FileDialog.LOAD);
 
+
             // If a file selection was made
             if (file != null) {
+                log.info("Loading genome: file.name=" + file.getName() + "  file.path=" + file.getPath() +
+                        "  file.absolutePath=" + file.getAbsolutePath());
+
                 if (monitor != null) {
                     progressDialog = ProgressBar.showProgressDialog(mainFrame, "Loading Genome...", monitor, false);
                 }
@@ -685,8 +714,6 @@ public class IGV {
 
         FrameManager.getDefaultFrame().setChromosomeName(genome.getHomeChromosome(), true);
 
-        //TODO Should use EventBus/events for changing genome, clean this up a lot
-        menuBar.createFileMenu();
     }
 
 
@@ -956,11 +983,12 @@ public class IGV {
 
 
     final public void doRefresh() {
+
         contentPane.getMainPanel().revalidate();
         mainFrame.repaint();
         //getContentPane().repaint();
         contentPane.getCommandBar().updateComponentStates();
-        menuBar.createFileMenu();
+        // menuBar.createFileMenu();
     }
 
     final public void refreshCommandBar() {
@@ -1019,7 +1047,7 @@ public class IGV {
             token = WaitCursorManager.showWaitCursor();
             contentPane.getStatusBar().setMessage("Exporting image: " + defaultFile.getAbsolutePath());
             String msg = createSnapshotNonInteractive(target, file, false);
-            if(msg != null && msg.toLowerCase().startsWith("error")){
+            if (msg != null && msg.toLowerCase().startsWith("error")) {
                 MessageUtils.showMessage(msg);
             }
         } catch (IOException e) {
@@ -1133,7 +1161,7 @@ public class IGV {
         }*/
 
         if (fistCursor == null) {
-            BufferedImage handImage = new BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB);
+            final BufferedImage handImage = new BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB);
 
             // Make backgroun transparent
             Graphics2D g = handImage.createGraphics();
@@ -1144,8 +1172,33 @@ public class IGV {
 
             // Draw hand image in middle
             g = handImage.createGraphics();
-            g.drawImage(IconFactory.getInstance().getIcon(IconFactory.IconID.FIST).getImage(), 0, 0, null);
-            fistCursor = mainFrame.getToolkit().createCustomCursor(handImage, new Point(8, 6), "Move");
+            boolean ready = g.drawImage(IconFactory.getInstance().getIcon(IconFactory.IconID.FIST).getImage(), 0, 0, new ImageObserver() {
+                @Override
+                public boolean imageUpdate(Image img, int infoflags, int x, int y, int width, int height) {
+                    if ((infoflags & ImageObserver.ALLBITS) != 0) {
+                        // Image is ready
+                        try {
+                            fistCursor = mainFrame.getToolkit().createCustomCursor(handImage, new Point(8, 6), "Move");
+                        } catch (Exception e) {
+                            log.error("Could not create fistCursor", e);
+                            fistCursor = Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR);
+                        }
+                        return false;
+                    } else {
+                        return true;
+                    }
+                }
+            });
+            if (ready) {
+                try {
+                    fistCursor = mainFrame.getToolkit().createCustomCursor(handImage, new Point(8, 6), "Move");
+                } catch (Exception e) {
+                    log.info("Warning: could not create fistCursor");
+                    fistCursor = Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR);
+                }
+
+            }
+
         }
 
     }
@@ -1154,33 +1207,52 @@ public class IGV {
             throws HeadlessException, IndexOutOfBoundsException {
 
         if (dragNDropCursor == null) {
-            ImageIcon icon =
-                    IconFactory.getInstance().getIcon(
-                            IconFactory.IconID.DRAG_AND_DROP);
+            ImageIcon icon = IconFactory.getInstance().getIcon(IconFactory.IconID.DRAG_AND_DROP);
 
             int width = icon.getIconWidth();
             int height = icon.getIconHeight();
 
-            BufferedImage dragNDropImage =
+            final BufferedImage dragNDropImage =
                     new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
 
             // Make background transparent
             Graphics2D g = dragNDropImage.createGraphics();
-            g.setComposite(AlphaComposite.getInstance(
-                    AlphaComposite.CLEAR, 0.0f));
+            g.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR, 0.0f));
             Rectangle2D.Double rect = new Rectangle2D.Double(0, 0, width, height);
             g.fill(rect);
 
             // Draw DND image
-            g =
-                    dragNDropImage.createGraphics();
+            g = dragNDropImage.createGraphics();
             Image image = icon.getImage();
-            g.drawImage(image, 0, 0, null);
-            dragNDropCursor =
-                    mainFrame.getToolkit().createCustomCursor(
-                            dragNDropImage, new Point(0, 0), "Drag and Drop");
-        }
+            boolean ready = g.drawImage(image, 0, 0, new ImageObserver() {
+                @Override
+                public boolean imageUpdate(Image img, int infoflags, int x, int y, int width, int height) {
+                    if ((infoflags & ImageObserver.ALLBITS) != 0) {
+                        // Image is ready
+                        try {
+                            dragNDropCursor = mainFrame.getToolkit().createCustomCursor(
+                                    dragNDropImage, new Point(0, 0), "Drag and Drop");
+                        } catch (Exception e) {
+                            log.info("Warning: could not create dragNDropCursor");
+                            dragNDropCursor = Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR);
+                        }
+                        return false;
 
+                    } else {
+                        return true;
+                    }
+                }
+            });
+            if (ready) {
+                try {
+                    dragNDropCursor = mainFrame.getToolkit().createCustomCursor(
+                            dragNDropImage, new Point(0, 0), "Drag and Drop");
+                } catch (Exception e) {
+                    log.info("Warning: could not create dragNDropCursor");
+                    dragNDropCursor = Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR);
+                }
+            }
+        }
     }
 
     /**
@@ -1405,9 +1477,10 @@ public class IGV {
             inputStream = new BufferedInputStream(ParsingUtils.openInputStreamGZ(new ResourceLocator(sessionPath)));
 
             boolean isUCSC = sessionPath.endsWith(".session") || sessionPath.endsWith(".session.txt");
+            boolean isIndexAware = sessionPath.endsWith(".idxsession") || sessionPath.endsWith(".idxsession.txt");
             final SessionReader sessionReader = isUCSC ?
                     new UCSCSessionReader(this) :
-                    new IGVSessionReader(this);
+                    (isIndexAware ? new IndexAwareSessionReader(this) : new IGVSessionReader(this));
 
             sessionReader.loadSession(inputStream, session, sessionPath);
 
@@ -1743,7 +1816,8 @@ public class IGV {
     public List<Track> load(ResourceLocator locator) throws DataLoadException {
 
         TrackLoader loader = new TrackLoader();
-        List<Track> newTracks = loader.load(locator, this);
+        Genome genome = GenomeManager.getInstance().getCurrentGenome();
+        List<Track> newTracks = loader.load(locator, genome);
         if (newTracks.size() > 0) {
             for (Track track : newTracks) {
                 String fn = locator.getPath();
@@ -1758,6 +1832,7 @@ public class IGV {
                 track.setAttributeValue(Globals.TRACK_DATA_FILE_ATTRIBUTE, fn);
                 track.setAttributeValue(Globals.TRACK_DATA_TYPE_ATTRIBUTE, track.getTrackType().toString());
 
+                // If the track listens for group events add it to the listener list
                 if (track instanceof TrackGroupEventListener) {
                     addGroupEventListener((TrackGroupEventListener) track);
                 }
@@ -1772,16 +1847,17 @@ public class IGV {
      * Load the data file into the specified panel.   Triggered via drag and drop.
      */
     public void load(ResourceLocator locator, TrackPanel panel) throws DataLoadException {
+
         // If this is a session  TODO -- need better "is a session?" test
         if (locator.getPath().endsWith(".xml") || locator.getPath().endsWith(("session"))) {
             boolean merge = false;  // TODO -- ask user?
             this.doRestoreSession(locator.getPath(), null, merge);
+        } else {
+            // Not a session, load into target panel
+            List<Track> tracks = load(locator);
+            panel.addTracks(tracks);
+            doRefresh();
         }
-
-        // Not a session, load into target panel
-        List<Track> tracks = load(locator);
-        panel.addTracks(tracks);
-        doRefresh();
     }
 
     /**
@@ -1796,10 +1872,7 @@ public class IGV {
             return getVcfBamPanel();
         } else if (PreferenceManager.getInstance().getAsBoolean(PreferenceManager.SHOW_SINGLE_TRACK_PANE_KEY)) {
             return getTrackPanel(DATA_PANEL_NAME);
-        } else if (path.endsWith(".sam") || path.endsWith(".bam") ||
-                path.endsWith(".sam.list") || path.endsWith(".bam.list") ||
-                path.endsWith(".aligned") || "ga4gh".equals(locator.getType())) {
-
+        } else if (TrackLoader.isAlignmentTrack(locator.getTypeString())) {
             String newPanelName = "Panel" + System.currentTimeMillis();
             return addDataPanel(newPanelName).getTrackPanel();
         } else {
@@ -1899,10 +1972,18 @@ public class IGV {
      * @param option
      * @api
      */
-    public void groupAlignmentTracks(AlignmentTrack.GroupOption option) {
+    public void groupAlignmentTracks(AlignmentTrack.GroupOption option, String tag) {
         for (Track t : getAllTracks()) {
             if (t instanceof AlignmentTrack) {
-                ((AlignmentTrack) t).groupAlignments(option, FrameManager.getFrames());
+                ((AlignmentTrack) t).groupAlignments(option, tag);
+            }
+        }
+    }
+
+    public void groupAlignmentTracksByBaseAtPos(AlignmentTrack.GroupOption option, Range pos) {
+        for (Track t : getAllTracks()) {
+            if (t instanceof AlignmentTrack) {
+                ((AlignmentTrack) t).groupAlignmentsByBaseAtPos(option, pos);
             }
         }
     }
@@ -2063,7 +2144,10 @@ public class IGV {
         int left = Math.min(otherIndex, clickedTrackIndex);
         int right = Math.max(otherIndex, clickedTrackIndex);
         for (int i = left; i <= right; i++) {
-            allTracks.get(i).setSelected(true);
+            Track t = allTracks.get(i);
+            if (t.isVisible()) {
+                t.setSelected(true);
+            }
         }
     }
 
@@ -2073,8 +2157,8 @@ public class IGV {
         }
     }
 
-    public Collection<Track> getSelectedTracks() {
-        HashSet<Track> selectedTracks = new HashSet();
+    public List<Track> getSelectedTracks() {
+        ArrayList<Track> selectedTracks = new ArrayList();
         for (Track t : getAllTracks()) {
             if (t != null && t.isSelected()) {
                 selectedTracks.add(t);
@@ -2330,12 +2414,12 @@ public class IGV {
     // Events
 
     public synchronized void addGroupEventListener(TrackGroupEventListener l) {
-        groupListeners.add(new SoftReference<TrackGroupEventListener>(l));
+        groupListeners.add(new WeakReference<TrackGroupEventListener>(l));
     }
 
     public synchronized void removeGroupEventListener(TrackGroupEventListener l) {
 
-        for (Iterator<SoftReference<TrackGroupEventListener>> it = groupListeners.iterator(); it.hasNext(); ) {
+        for (Iterator<WeakReference<TrackGroupEventListener>> it = groupListeners.iterator(); it.hasNext(); ) {
             TrackGroupEventListener listener = it.next().get();
             if (listener != null && listener == l) {
                 it.remove();
@@ -2346,18 +2430,18 @@ public class IGV {
 
     public void notifyGroupEvent() {
         TrackGroupEvent e = new TrackGroupEvent(this);
-        for (SoftReference<TrackGroupEventListener> ref : groupListeners) {
+        for (WeakReference<TrackGroupEventListener> ref : groupListeners) {
             TrackGroupEventListener l = ref.get();
             l.onTrackGroupEvent(e);
         }
     }
 
     public synchronized void addAlignmentTrackEventListener(AlignmentTrackEventListener l) {
-        alignmentTrackListeners.add(new SoftReference<AlignmentTrackEventListener>(l));
+        alignmentTrackListeners.add(new WeakReference<AlignmentTrackEventListener>(l));
     }
 
     public synchronized void removeAlignmentTrackEvent(AlignmentTrackEventListener l) {
-        for (Iterator<SoftReference<AlignmentTrackEventListener>> it = alignmentTrackListeners.iterator(); it.hasNext(); ) {
+        for (Iterator<WeakReference<AlignmentTrackEventListener>> it = alignmentTrackListeners.iterator(); it.hasNext(); ) {
             AlignmentTrackEventListener listener = it.next().get();
             if (listener != null && listener == l) {
                 it.remove();
@@ -2366,9 +2450,18 @@ public class IGV {
         }
     }
 
+    public void notifyAlignmentTrackEvent(Object source, AlignmentTrackEvent.Type type, boolean value) {
+        AlignmentTrackEvent e = new AlignmentTrackEvent(source, type, value);
+        for (WeakReference<AlignmentTrackEventListener> ref : alignmentTrackListeners) {
+            AlignmentTrackEventListener l = ref.get();
+            l.onAlignmentTrackEvent(e);
+        }
+    }
+
+
     public void notifyAlignmentTrackEvent(Object source, AlignmentTrackEvent.Type type) {
         AlignmentTrackEvent e = new AlignmentTrackEvent(source, type);
-        for (SoftReference<AlignmentTrackEventListener> ref : alignmentTrackListeners) {
+        for (WeakReference<AlignmentTrackEventListener> ref : alignmentTrackListeners) {
             AlignmentTrackEventListener l = ref.get();
             l.onAlignmentTrackEvent(e);
         }
@@ -2484,7 +2577,8 @@ public class IGV {
                     }
                 } else if (igvArgs.getDataFileString() != null) {
                     // Not an xml file, assume its a list of data files
-                    String[] dataFiles = igvArgs.getDataFileString().split(",");
+                    String decodedString = URLDecoder.decode(igvArgs.getDataFileString());
+                    String[] dataFiles = decodedString.split(",");
                     String[] names = null;
                     if (igvArgs.getName() != null) {
                         names = igvArgs.getName().split(",");
@@ -2519,7 +2613,7 @@ public class IGV {
                         }
 
                         //Set index file, iff one was passed
-                        if(indexFiles != null && i < indexFiles.length) {
+                        if (indexFiles != null && i < indexFiles.length) {
                             String idxP = indexFiles[i];
                             if (HttpUtils.isURL(idxP) && !FileUtils.isRemote(idxP)) {
                                 idxP = StringUtils.decodeURL(idxP);
@@ -2530,7 +2624,7 @@ public class IGV {
                         }
 
                         //Set coverage file, iff one was passed
-                        if(coverageFiles != null && i < coverageFiles.length) {
+                        if (coverageFiles != null && i < coverageFiles.length) {
                             String covP = coverageFiles[i];
                             if (HttpUtils.isURL(covP) && !FileUtils.isRemote(covP)) {
                                 covP = StringUtils.decodeURL(covP);
@@ -2548,6 +2642,7 @@ public class IGV {
 
                 indefMonitor.stop();
                 closeWindow(progressDialog2);
+
             }
 
             session.recordHistory();
@@ -2571,9 +2666,9 @@ public class IGV {
                         goToLocus(igvArgs.getLocusString());
                     }
                     if (runningBatch) {
+                        Globals.setBatch(false);   // Set to false for startup execution -- otherwise we block the event thread
                         LongRunningTask.submit(new BatchRunner(igvArgs.getBatchFile()));
                     }
-
                 }
             });
 
@@ -2616,7 +2711,7 @@ public class IGV {
             }
             pluginClassNames.addAll(Arrays.asList(PreferenceManager.getInstance().getIGVPluginList()));
             for (String classname : pluginClassNames) {
-                if(classname.startsWith("#")) continue;
+                if (classname.startsWith("#")) continue;
                 try {
                     Class clazz = Class.forName(classname);
                     IGVPlugin plugin = (IGVPlugin) clazz.newInstance();
@@ -2629,6 +2724,7 @@ public class IGV {
         }
 
     }
+
 
     public static void copySequenceToClipboard(Genome genome, String chr, int start, int end) {
         try {
@@ -2676,5 +2772,24 @@ public class IGV {
         return completed;
     }
 
+//
+//    NOTE:  MAC ONLY,  WILL NOT COMPILE ON OTHER PLATFORMS
+//    private void getRealDPI() {
+//        // find the display device of interest
+//        final GraphicsDevice defaultScreenDevice = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice();
+//
+//        // on OS X, it would be CGraphicsDevice
+//        if (defaultScreenDevice instanceof CGraphicsDevice) {
+//            final CGraphicsDevice device = (CGraphicsDevice) defaultScreenDevice;
+//
+//            // this is the missing correction factor, it's equal to 2 on HiDPI a.k.a. Retina displays
+//            final int scaleFactor = device.getScaleFactor();
+//
+//            // now we can compute the real DPI of the screen
+//            final double realDPI = scaleFactor * (device.getXResolution() + device.getYResolution()) / 2;
+//
+//            System.out.println("scale factor = " + scaleFactor + "    realDPI = " + realDPI);
+//        }
+//    }
 
 }

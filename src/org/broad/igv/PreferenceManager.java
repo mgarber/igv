@@ -1,13 +1,28 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
+
 /*
  * To change this template, choose Tools | Templates
  * and open the template in the editor.
@@ -21,11 +36,10 @@ import org.broad.igv.renderer.ColorScaleFactory;
 import org.broad.igv.renderer.ContinuousColorScale;
 import org.broad.igv.sam.AlignmentTrack.ShadeBasesOption;
 import org.broad.igv.track.TrackType;
-import org.broad.igv.ui.AboutDialog;
-import org.broad.igv.ui.IGVCommandBar;
-import org.broad.igv.ui.UIConstants;
+import org.broad.igv.ui.*;
 import org.broad.igv.ui.color.ColorUtilities;
 import org.broad.igv.ui.color.PaletteColorTable;
+import org.broad.igv.ui.event.AlignmentTrackEvent;
 import org.broad.igv.ui.util.PropertyManager;
 import org.broad.igv.util.HttpUtils;
 
@@ -41,9 +55,11 @@ public class PreferenceManager implements PropertyManager {
 
     private static Logger log = Logger.getLogger(PreferenceManager.class);
 
-    public static final String DEFAULT_GENOME = "hg18";
+    public static final String DEFAULT_GENOME = "hg19";
 
     public static final String SKIP_VERSION = "SKIP_VERSION";
+
+    public static final String SHOW_LOS = "showLOS";
 
     public static final String INITIAL_TRACK_HEIGHT = "15";
 
@@ -62,15 +78,6 @@ public class PreferenceManager implements PropertyManager {
     public static final String CHART_SHOW_DATA_RANGE = "CHART.SHOW_DATA_RANGE";
 
     public static final String UNLOAD_ON_GENOME_CHANGE = "UNLOAD_ON_GENOME_CHANGE";
-
-    /**
-     * Added by Chantal Roth, June 25th 2012
-     */
-    public static final String IONTORRENT_FLOWDIST_HIDE_FIRST_HP = "IONTORRENT.FLOWDIST_HIDE_FIRST_HP";
-    public static final String IONTORRENT_FLOWDIST_BINSIZE = "IONTORRENT.FLOWDIST_BINSIZE";
-    public static final String IONTORRENT_FLOWDIST_CHARTTYPE = "IONTORRENT.FLOWDIST_CHARTTYPE";
-    public static final String IONTORRENT_SERVER = "IONTORRENT.SERVER";
-    public static final String IONTORRENT_RESULTS = "IONTORRENT.RESULTS";
 
     public static final String SAM_ALLELE_THRESHOLD = "SAM.ALLELE_THRESHOLD";
     public static final String SAM_ALLELE_USE_QUALITY = "SAM.ALLELE_USE_QUALITY";
@@ -91,14 +98,17 @@ public class PreferenceManager implements PropertyManager {
     public static final String SAM_FILTER_SECONDARY_ALIGNMENTS = "SAM.FILTER_SECONDARY_ALIGNMENTS";
     public static final String SAM_FILTER_SUPPLEMENTARY_ALIGNMENTS = "SAM.FILTER_SUPPLEMENTARY_ALIGNMENTS";
     public static final String SAM_FILTER_URL = "SAM.FILTER_URL";
+    public static final String SAM_HIDDEN_TAGS = "SAM.HIDDEN_TAGS";
     public static final String SAM_MAX_VISIBLE_RANGE = "SAM.MAX_VISIBLE_RANGE";
     public static final String SAM_SHOW_DUPLICATES = "SAM.SHOW_DUPLICATES";
+    public static final String SAM_QUICK_CONSENSUS_MODE = "SAM.QUICK_CONSENSUS_MODE";
     public static final String SAM_SHOW_SOFT_CLIPPED = "SAM.SHOW_SOFT_CLIPPED";
     public static final String SAM_FLAG_UNMAPPED_PAIR = "SAM.FLAG_UNMAPPED_PAIR";
     public static final String SAM_SAMPLING_COUNT = "SAM.MAX_LEVELS"; // Sampling count
     public static final String SAM_SAMPLING_WINDOW = "SAM.SAMPLING_WINDOW";
     public static final String SAM_DOWNSAMPLE_READS = "SAM.DOWNSAMPLE_READS";
     public static final String SAM_SORT_OPTION = "SAM.SORT_OPTION";
+    public static final String SAM_SHOW_ALL_BASES = "SAM.SHOW_ALL_BASES";
 
     public static final String SAM_COLOR_BY = "SAM.COLOR_BY";
     public static final String SAM_COLOR_BY_TAG = "SAM.COLOR_BY_TAG";
@@ -118,11 +128,23 @@ public class PreferenceManager implements PropertyManager {
     public static final String SAM_NOMESEQ_ENABLED = "SAM.NOMESEQ_ENABLED";
     public static final String SAM_COUNT_DELETED_BASES_COVERED = "SAM.COUNT_DELETED_BASES_COVERED";
 
-    public static final String SAM_FLAG_LARGE_INSERTIONS = "SAM.FLAG_LARGE_INSERTIONS";
-    public static final String SAM_LARGE_INSERTIONS_THRESHOLD = "SAM.LARGE_INSERTIONS_THRESOLD";
+    public static final String SAM_FLAG_LARGE_INDELS = "SAM.FLAG_LARGE_INDELS";
+    public static final String SAM_LARGE_INDELS_THRESHOLD = "SAM.LARGE_INSERTIONS_THRESOLD";
 
     public static final String SAM_SHOW_GROUP_SEPARATOR = "SAM.SHOW_GROUP_SEPARATOR";
     public static final String SAM_COMPLETE_READS_ONLY = "SAM.COMPLETE_READS_ONLY";
+
+    public static final String SAM_REDUCED_MEMORY_MODE = "SAM.REDUCED_MEMORY_MODE";
+
+    public static final String SAM_HIDE_SMALL_INDEL_BP = "SAM.HIDE_SMALL_INDEL_BP";
+    public static final String SAM_HIDE_SMALL_INDEL_PIXEL = "SAM.HIDE_SMALL_INDEL";
+    public static final String SAM_SMALL_INDEL_BP_THRESHOLD = "SAM.MIN_INDEL_BP_THRESHOLD";
+    public static final String SAM_SMALL_INDELS_PIXEL_THRESHOLD = "SAM.MIN_INDEL_PIXEL_THRESHOLD";
+
+    public static final String SAM_LINK_READS = "SAM.LINK_READS";
+    public static final String SAM_LINK_TAG = "SAM.LINK_TAG";
+
+    public static final String SAM_SHOW_ALIGNMENT_TRACK = "SAM.SHOW_ALIGNMENT_TRACK";
 
     public static final String COLOR_A = "COLOR.A";
     public static final String COLOR_C = "COLOR.C";
@@ -134,6 +156,13 @@ public class PreferenceManager implements PropertyManager {
     public static final String SAM_COLOR_T = "SAM.COLOR.T";
     public static final String SAM_COLOR_G = "SAM.COLOR.G";
     public static final String SAM_COLOR_N = "SAM.COLOR.N";
+
+    public static final String HOMREF_COLOR = "HOMREF.COLOR";
+    public static final String HETVAR_COLOR = "HETVAR.COLOR";
+    public static final String HOMVAR_COLOR = "HOMVAR.COLOR";
+    public static final String NOCALL_COLOR = "NOCALL.COLOR";
+    public static final String AF_REF_COLOR = "AF_REF.COLOR";
+    public static final String AF_VAR_COLOR = "AF_VAR.COLOR";
 
     public static final String EXPAND_FEAUTRE_TRACKS = "EXPAND_FEATURE_TRACKS";
     public static final String PORT_ENABLED = "PORT_ENABLED";
@@ -181,11 +210,14 @@ public class PreferenceManager implements PropertyManager {
     //public static final String CHECKED_RESOURCES_KEY = "CHECKED_RESOURCES_KEY";
     public static final String DEFINE_GENOME_INPUT_DIRECTORY_KEY = "DEFINE_GENOME_INPUT_DIRECTORY_KEY";
 
+    public static final String VARIANT_COLOR_BY_ALLELE_FREQ = "VARIANT_COLOR_BY_ALLELE_FREQ";
+
     public static final String PROBE_MAPPING_KEY = "PROBE_MAPPING_KEY";
     public static final String PROBE_MAPPING_FILE = "PROBE_MAPPING_FILE";
     public static final String USE_PROBE_MAPPING_FILE = "USE_PROBE_MAPPING_FILE";
 
     public static final String SEARCH_ZOOM = "SEARCH_ZOOM";
+    public static final String BYPASS_FILE_AUTO_DISCOVERY = "BYPASS_FILE_AUTO_DISCOVERY";
     public static final String NORMALIZE_COVERAGE = "NORMALIZE_COVERAGE";
     public static final String SHOW_EXPAND_ICON = "SHOW_EXPAND_ICON";
     public static final String SHOW_DEFAULT_TRACK_ATTRIBUTES = "SHOW_DEFAULT_TRACK_ATTRIBUTES";
@@ -251,7 +283,7 @@ public class PreferenceManager implements PropertyManager {
     public static final String DB_NAME = "DB_NAME";
     public static final String DB_PORT = "DB_PORT";
     public static final String DEFAULT_GENOME_URL = "http://igv.broadinstitute.org/genomes/genomes.txt";
-    public static final String DEFAULT_DATA_URL = "http://www.broadinstitute.org/igvdata/$$_dataServerRegistry.txt";
+    public static final String DEFAULT_DATA_URL = "https://data.broadinstitute.org/igvdata/$$_dataServerRegistry.txt";
 
     public static final String IGV_PLUGIN_LIST_KEY = "IGV_PLUGIN_LIST";
 
@@ -262,9 +294,11 @@ public class PreferenceManager implements PropertyManager {
     public static final String SAVE_GOOGLE_CREDENTIALS = "SAVE_GOOGLE_CREDENTIALS";
 
     public static final String BLAT_URL = "BLAT_URL";
+    public static final String EXTVIEW_URL = "EXTVIEW_URL";
 
     public static final String GENE_LIST_BED_FORMAT = "GENE_LIST_BED_FORMAT";
 
+    public static final String SESSION_RELATIVE_PATH = "SESSION.RELATIVE_PATH";
 
     IGVPreferences preferences;
     Map<String, String> defaultValues;
@@ -298,14 +332,17 @@ public class PreferenceManager implements PropertyManager {
 
 
     public String get(String key, String defaultString) {
+        key = key.trim();
         return preferences.get(key, defaultString);
     }
 
     public String get(String key) {
+        key = key.trim();
         return get(key, defaultValues.get(key));
     }
 
     public boolean hasExplicitValue(String key) {
+        key = key.trim();
         return preferences.userPreferences.containsKey(key);
     }
 
@@ -317,6 +354,7 @@ public class PreferenceManager implements PropertyManager {
      * @return
      */
     public String getDefaultValue(String key) {
+        key = key.trim();
         return defaultValues.get(key);
     }
 
@@ -328,6 +366,7 @@ public class PreferenceManager implements PropertyManager {
      * @return
      */
     public boolean getAsBoolean(String key) {
+        key = key.trim();
         Boolean boolValue = booleanCache.get(key);
         if (boolValue == null) {
             String value = get(key);
@@ -348,6 +387,7 @@ public class PreferenceManager implements PropertyManager {
      * @return
      */
     public int getAsInt(String key) {
+        key = key.trim();
         Number value = (Number) objectCache.get(key);
         if (value == null) {
             String defValue = get(key);
@@ -368,6 +408,7 @@ public class PreferenceManager implements PropertyManager {
      * @return
      */
     public Color getAsColor(String key) {
+        key = key.trim();
         Color value = (Color) objectCache.get(key);
         if (value == null) {
             String defValue = get(key);
@@ -388,6 +429,7 @@ public class PreferenceManager implements PropertyManager {
      * @return
      */
     public float getAsFloat(String key) {
+        key = key.trim();
         Number value = (Number) objectCache.get(key);
         if (value == null) {
             String defValue = get(key);
@@ -419,6 +461,7 @@ public class PreferenceManager implements PropertyManager {
      * @param value
      */
     private void updateCaches(String key, String value) {
+        key = key.trim();
         if (booleanCache.containsKey(key)) {
             booleanCache.put(key, new Boolean(value));
         }
@@ -433,11 +476,13 @@ public class PreferenceManager implements PropertyManager {
     }
 
     public void put(String key, String value) {
+        key = key.trim();
         preferences.put(key, value);
         updateCaches(key, value);
     }
 
     public void put(String key, boolean b) {
+        key = key.trim();
         String value = String.valueOf(b);
         preferences.put(key, value);
         updateCaches(key, value);
@@ -445,6 +490,8 @@ public class PreferenceManager implements PropertyManager {
 
 
     public void putAll(Map<String, String> updatedPrefs) {
+
+
         for (Map.Entry<String, String> entry : updatedPrefs.entrySet()) {
             if (entry.getValue() == null || entry.getValue().trim().length() == 0) {
                 remove(entry.getKey());
@@ -453,7 +500,39 @@ public class PreferenceManager implements PropertyManager {
                 put(entry.getKey(), entry.getValue());
             }
         }
+
+        checkForAlignmentChanges(updatedPrefs);
+
+
         clearCaches();
+
+    }
+
+    private void checkForAlignmentChanges(Map<String, String> updatedPreferenceMap) {
+
+        if (IGV.hasInstance()) {
+
+            final IGV igv = IGV.getInstance();
+
+            boolean reloadSAM = false;
+            for (String key : SAM_RELOAD_KEYS) {
+                if (updatedPreferenceMap.containsKey(key)) {
+                    reloadSAM = true;
+                    break;
+                }
+
+            }
+
+            if (reloadSAM) {
+                if (updatedPreferenceMap.containsKey(PreferenceManager.SAM_MAX_VISIBLE_RANGE)) {
+                    igv.notifyAlignmentTrackEvent(this, AlignmentTrackEvent.Type.VISIBILITY_WINDOW);
+                }
+                igv.notifyAlignmentTrackEvent(this, AlignmentTrackEvent.Type.RELOAD);
+            }
+            if (updatedPreferenceMap.containsKey(PreferenceManager.SAM_ALLELE_THRESHOLD)) {
+                igv.notifyAlignmentTrackEvent(this, AlignmentTrackEvent.Type.ALLELE_THRESHOLD);
+            }
+        }
 
     }
 
@@ -622,33 +701,6 @@ public class PreferenceManager implements PropertyManager {
 
 
     /**
-     * @param directory
-     */
-    public void setLastSessionDirectory(File directory) {
-
-        put(LAST_SESSION_DIRECTORY, directory.getAbsolutePath());
-    }
-
-    /**
-     * @return
-     */
-    public File getLastSessionDirectory() {
-
-        File sessionDirectory = null;
-
-        String lastFilePath = get(LAST_SESSION_DIRECTORY, null);
-
-        if (lastFilePath != null) {
-
-            // Create the session directory
-            sessionDirectory = new File(lastFilePath);
-        }
-
-        return sessionDirectory;
-    }
-
-
-    /**
      * @param recentSessions
      */
     public void setRecentSessions(String recentSessions) {
@@ -686,6 +738,12 @@ public class PreferenceManager implements PropertyManager {
      */
     public void override(String key, String value) {
         preferences.putOverride(key, value);
+
+        Map<String, String> updatedPrefs = new HashMap<String, String>();
+        updatedPrefs.put(key, value);
+        checkForAlignmentChanges(updatedPrefs);
+
+
         clearCaches();
     }
 
@@ -797,7 +855,7 @@ public class PreferenceManager implements PropertyManager {
      * @param type
      * @return
      */
-    public ContinuousColorScale getDefaultColorScale(TrackType type) {
+    public static ContinuousColorScale getDefaultColorScale(TrackType type) {
         switch (type) {
             case LOH:
                 return new ContinuousColorScale(0, -1, 0, 1, Color.red, UIConstants.LIGHT_YELLOW, Color.blue);
@@ -813,18 +871,22 @@ public class PreferenceManager implements PropertyManager {
                 return cs;
 
             case GENE_EXPRESSION:
-                cs = new ContinuousColorScale(-0.1, -1.5, 0.1, 1.5, Color.BLUE, Color.WHITE, Color.RED);
+                cs = getDefaultColorScale(Color.BLUE, Color.WHITE, Color.RED);
                 cs.setNoDataColor(new Color(225, 225, 225));
                 return cs;
 
             case COPY_NUMBER:
             case ALLELE_SPECIFIC_COPY_NUMBER:
             case CNV:
-                return new ContinuousColorScale(-0.1, -1.5, 0.1, 1.5, Color.BLUE, Color.WHITE, Color.RED);
+                return getDefaultColorScale(Color.BLUE, Color.WHITE, Color.RED);
 
             default:
                 return null;
         }
+    }
+
+    public static ContinuousColorScale getDefaultColorScale(Color negColor, Color neutralColor, Color posColor) {
+        return new ContinuousColorScale(-0.1, -1.5, 0.1, 1.5, negColor, neutralColor, posColor);
     }
 
     /**
@@ -972,12 +1034,6 @@ public class PreferenceManager implements PropertyManager {
         defaultValues.put(SHOW_EXPAND_ICON, "false");
         defaultValues.put(SHOW_DEFAULT_TRACK_ATTRIBUTES, "false");
 
-        defaultValues.put(IONTORRENT_FLOWDIST_HIDE_FIRST_HP, "true");
-        defaultValues.put(IONTORRENT_FLOWDIST_BINSIZE, "15");
-        defaultValues.put(IONTORRENT_FLOWDIST_CHARTTYPE, "LINE");
-        defaultValues.put(IONTORRENT_SERVER, "ioneast.ite");
-        defaultValues.put(IONTORRENT_RESULTS, "/results/analysis/output/Home/");
-
         defaultValues.put(CHART_DRAW_TOP_BORDER, "false");
         defaultValues.put(CHART_DRAW_BOTTOM_BORDER, "false");
         defaultValues.put(CHART_COLOR_BORDERS, "true");
@@ -991,6 +1047,7 @@ public class PreferenceManager implements PropertyManager {
         defaultValues.put(UNLOAD_ON_GENOME_CHANGE, "false");
 
         defaultValues.put(SAM_SHOW_DUPLICATES, "false");
+        defaultValues.put(SAM_QUICK_CONSENSUS_MODE, "false");
         defaultValues.put(SAM_SHOW_SOFT_CLIPPED, "false");
         defaultValues.put(SAM_FLAG_UNMAPPED_PAIR, "false");
         defaultValues.put(SAM_AUTO_SORT, "false");
@@ -1009,6 +1066,7 @@ public class PreferenceManager implements PropertyManager {
         defaultValues.put(SAM_BASE_QUALITY_MIN, "5");
         defaultValues.put(SAM_BASE_QUALITY_MAX, "20");
         defaultValues.put(SAM_FILTER_URL, null);
+        defaultValues.put(SAM_HIDDEN_TAGS, "SA,MD,XA,RG");
         defaultValues.put(SAM_QUALITY_THRESHOLD, "0");
         defaultValues.put(SAM_ALLELE_THRESHOLD, "0.2f");
         defaultValues.put(SAM_ALLELE_USE_QUALITY, "true");
@@ -1030,11 +1088,26 @@ public class PreferenceManager implements PropertyManager {
         defaultValues.put(SAM_SHOW_JUNCTION_FLANKINGREGIONS, "true");
         defaultValues.put(SAM_NOMESEQ_ENABLED, "false");
         defaultValues.put(SAM_COUNT_DELETED_BASES_COVERED, "false");
-        defaultValues.put(SAM_FLAG_LARGE_INSERTIONS, "false");
-        defaultValues.put(SAM_LARGE_INSERTIONS_THRESHOLD, "1");
+        defaultValues.put(SAM_FLAG_LARGE_INDELS, "false");
+        defaultValues.put(SAM_LARGE_INDELS_THRESHOLD, "1");
         defaultValues.put(SAM_SORT_OPTION, "NUCLEOTIDE");
         defaultValues.put(SAM_SHOW_GROUP_SEPARATOR, "true");
         defaultValues.put(SAM_COMPLETE_READS_ONLY, "false");
+        defaultValues.put(SAM_SHOW_ALL_BASES, "false");
+
+        defaultValues.put(SAM_REDUCED_MEMORY_MODE, "false");
+
+        defaultValues.put(SAM_HIDE_SMALL_INDEL_BP, "false");
+        defaultValues.put(SAM_SMALL_INDEL_BP_THRESHOLD, "0");
+        defaultValues.put(SAM_HIDE_SMALL_INDEL_PIXEL, "true");
+        defaultValues.put(SAM_SMALL_INDELS_PIXEL_THRESHOLD, "3");
+
+        defaultValues.put(SAM_LINK_READS, "false");
+        defaultValues.put(SAM_LINK_TAG, "READNAME");
+
+        defaultValues.put(SAM_SHOW_ALIGNMENT_TRACK, "true");
+
+        defaultValues.put(BYPASS_FILE_AUTO_DISCOVERY, "false");
 
         defaultValues.put(NORMALIZE_COVERAGE, "false");
 
@@ -1135,6 +1208,15 @@ public class PreferenceManager implements PropertyManager {
         defaultValues.put(SAM_COLOR_G, "209,113,5");
         defaultValues.put(SAM_COLOR_N, ColorUtilities.colorToString(Color.gray.brighter()));
 
+        defaultValues.put(HOMREF_COLOR, "235,235,235");
+        defaultValues.put(HETVAR_COLOR, "0,0,255");
+        defaultValues.put(HOMVAR_COLOR, "0,245,255");
+        defaultValues.put(NOCALL_COLOR, "255,255,255");
+        defaultValues.put(AF_REF_COLOR, "0,0,220");
+        defaultValues.put(AF_VAR_COLOR, "255,0,0");
+
+        defaultValues.put(VARIANT_COLOR_BY_ALLELE_FREQ, "true");
+
         defaultValues.put(SASHIMI_SHOW_COVERAGE, "true");
 
         defaultValues.put(ENABLE_GOOGLE_MENU, "false");
@@ -1145,6 +1227,10 @@ public class PreferenceManager implements PropertyManager {
         defaultValues.put(BLAT_URL, "http://genome.cse.ucsc.edu/cgi-bin/hgBlat");
 
         defaultValues.put(GENE_LIST_BED_FORMAT, "false");
+
+        defaultValues.put(SESSION_RELATIVE_PATH, "false");
+
+        defaultValues.put(SHOW_LOS, "true");
 
     }
 
@@ -1283,5 +1369,32 @@ public class PreferenceManager implements PropertyManager {
             return get(key, def);
         }
     }
+
+
+    /**
+     * List of keys that affect the alignments loaded.  This list is used to trigger a reload, if required.
+     * Not all alignment preferences need trigger a reload, this is a subset.
+     */
+    static java.util.List<String> SAM_RELOAD_KEYS = Arrays.asList(
+            PreferenceManager.SAM_QUALITY_THRESHOLD,
+            PreferenceManager.SAM_FILTER_ALIGNMENTS,
+            PreferenceManager.SAM_FILTER_URL,
+            PreferenceManager.SAM_MAX_VISIBLE_RANGE,
+            PreferenceManager.SAM_SHOW_DUPLICATES,
+            PreferenceManager.SAM_QUICK_CONSENSUS_MODE,
+            PreferenceManager.SAM_ALLELE_THRESHOLD,
+            PreferenceManager.SAM_SHOW_SOFT_CLIPPED,
+            PreferenceManager.SAM_SAMPLING_COUNT,
+            PreferenceManager.SAM_SAMPLING_WINDOW,
+            PreferenceManager.SAM_FILTER_FAILED_READS,
+            PreferenceManager.SAM_DOWNSAMPLE_READS,
+            PreferenceManager.SAM_FILTER_SECONDARY_ALIGNMENTS,
+            PreferenceManager.SAM_FILTER_SUPPLEMENTARY_ALIGNMENTS,
+            PreferenceManager.SAM_JUNCTION_MIN_FLANKING_WIDTH,
+            PreferenceManager.SAM_JUNCTION_MIN_COVERAGE,
+       //     PreferenceManager.SAM_FLAG_LARGE_INDELS,
+            PreferenceManager.SAM_LARGE_INDELS_THRESHOLD
+    );
+
 
 }

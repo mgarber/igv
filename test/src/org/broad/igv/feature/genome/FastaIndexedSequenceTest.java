@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.feature.genome;
@@ -33,7 +47,7 @@ public class FastaIndexedSequenceTest {
 
     @BeforeClass
     public static void setup() throws IOException {
-        String path = "http://www.broadinstitute.org/igvdata/test/fasta/ci2_test.fa";
+        String path = "http://data.broadinstitute.org/igvdata/test/fasta/ci2_test.fa";
         fastaSequence = new FastaIndexedSequence(path);
     }
 
@@ -45,7 +59,7 @@ public class FastaIndexedSequenceTest {
     @Test
     public void testReadSequence() throws Exception {
 
-        String chr02qSeqPath = "http://www.broadinstitute.org/igvdata/test/fasta/";
+        String chr02qSeqPath = "http://data.broadinstitute.org/igvdata/test/fasta/";
 
         String chr = "chr02q";
         int start = 3531385;
@@ -65,7 +79,7 @@ public class FastaIndexedSequenceTest {
     @Test
     public void testReadEnd() throws Exception {
 
-        String path = "http://www.broadinstitute.org/igvdata/test/fasta/ci2_test.fa";
+        String path = "http://data.broadinstitute.org/igvdata/test/fasta/ci2_test.fa";
 
         String chr = "chr02q";
         int chrLen = 8059593;

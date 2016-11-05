@@ -1,21 +1,36 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.ui;
 
-import com.google.common.eventbus.Subscribe;
 import org.apache.log4j.Logger;
 import org.broad.igv.feature.AminoAcidManager;
 import org.broad.igv.feature.genome.GenomeManager;
 import org.broad.igv.ui.action.SearchCommand;
+import org.broad.igv.ui.event.IGVEventBus;
+import org.broad.igv.ui.event.IGVEventObserver;
 import org.broad.igv.ui.event.ViewChange;
 import org.broad.igv.ui.panel.FrameManager;
 import org.fest.swing.fixture.FrameFixture;
@@ -57,7 +72,7 @@ public class IGVCommandBarTest extends AbstractHeadedTest {
     }
 
     @Before
-    public void setUp() throws Exception{
+    public void setUp() throws Exception {
         super.setUp();
         this.actualEvents = 0;
         this.expectedEvents = 0;
@@ -65,12 +80,9 @@ public class IGVCommandBarTest extends AbstractHeadedTest {
     }
 
     @After
-    public void tearDown() throws Exception{
+    public void tearDown() throws Exception {
         System.out.println("Expected Events: " + expectedEvents + " Actual Events: " + actualEvents);
         assertTrue("Event handler not triggered properly", actualEvents >= expectedEvents);
-        if(registered){
-            FrameManager.getDefaultFrame().getEventBus().unregister(this);
-        }
         super.tearDown();
     }
 
@@ -93,7 +105,7 @@ public class IGVCommandBarTest extends AbstractHeadedTest {
     private volatile String enterText = null;
 
     private void tstChromoNav(String chromoText) throws Exception {
-        registerEventHandler(1);
+
 
         JTextComponentFixture searchFixture = frame.textBox("searchTextField");
         searchFixture.deleteText();
@@ -108,29 +120,8 @@ public class IGVCommandBarTest extends AbstractHeadedTest {
         frame.button("goButton").click();
     }
 
-    private void registerEventHandler(int expectedEvents) {
-        this.expectedEvents += expectedEvents;
-        if(!registered){
-            FrameManager.getDefaultFrame().getEventBus().register(this);
-            this.registered = true;
-        }
-    }
 
-    @Subscribe
-    public void receiveChromoChange(ViewChange.ChromosomeChangeCause e){
-        if(e.source instanceof SearchCommand){
-            actualEvents++;
-            try {
-                assertEquals(this.enterText, e.chrName);
-            } catch (Exception e1) {
-                log.error(e1.getMessage(), e1);
-                actualEvents = Integer.MIN_VALUE;
-            }
-        }else{
-            actualEvents = Integer.MIN_VALUE;
-            throw new AssertionError("Got a ChromosomeChangeCause event from unexpected source: " + e.source);
-        }
-    }
+
 
     @Test
     public void testChromoNav_CodonTable() throws Exception {

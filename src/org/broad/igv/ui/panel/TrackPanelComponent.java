@@ -1,13 +1,28 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
+
 /*
  * To change this template, choose Tools | Templates
  * and open the template in the editor.
@@ -33,7 +48,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
-import static org.broad.igv.track.TrackMenuUtils.getExportFeatures;
 
 /**
  * @author eflakes
@@ -168,7 +182,7 @@ abstract public class TrackPanelComponent extends JPanel {
     protected void openPopupMenu(TrackClickEvent te, List<Component> extraItems) {
         MouseEvent e = te.getMouseEvent();
 
-        Collection<Track> selectedTracks = getSelectedTracks();
+        final Collection<Track> selectedTracks = getSelectedTracks();
         if (selectedTracks.size() == 0) {
             return;
         }
@@ -209,12 +223,22 @@ abstract public class TrackPanelComponent extends JPanel {
 
         // Add export features
         ReferenceFrame frame = FrameManager.getDefaultFrame();
-        JMenuItem exportFeats = getExportFeatures(selectedTracks, frame);
+        JMenuItem exportFeats = TrackMenuUtils.getExportFeatures(selectedTracks, frame);
         if (exportFeats != null) menu.add(exportFeats);
 
-        if (menu != null) {
-            menu.show(e.getComponent(), e.getX(), e.getY());
-        }
+        JMenuItem exportNames = new JMenuItem("Export track names...");
+        exportNames.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                TrackMenuUtils.exportTrackNames(selectedTracks);
+            }
+        });
+        menu.add(exportNames);
+
+        menu.addSeparator();
+        menu.add(TrackMenuUtils.getRemoveMenuItem(selectedTracks));
+
+        menu.show(e.getComponent(), e.getX(), e.getY());
 
     }
 

@@ -1,7 +1,7 @@
 /*
- * The MIT License
+ * The MIT License (MIT)
  *
- * Copyright (c) 2009 The Broad Institute
+ * Copyright (c) 2007-2015 Broad Institute
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -12,6 +12,7 @@
  *
  * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
+ *
  *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -48,7 +49,7 @@ public class IGVSeekableBufferedStreamTest extends AbstractHeadlessTest{
 
     //    private final File BAM_INDEX_FILE = new File("testdata/net/sf/samtools/BAMFileIndexTest/index_test.bam.bai");
     private final File BAM_FILE = new File(TestUtils.DATA_DIR + "/samtools/index_test.bam");
-    private final String BAM_URL_STRING = "http://www.broadinstitute.org/igvdata/test/data/bam/index_test.bam";
+    private final String BAM_URL_STRING = "http://data.broadinstitute.org/igvdata/test/data/bam/index_test.bam";
     private static File megabyteZerosFile = new File(TestUtils.DATA_DIR + "/samtools/megabyteZeros.dat");
 
     static int expectedFileSize = 20000;

@@ -1,25 +1,35 @@
-/**
- * Copyright (c) 2010-2011 by Fred Hutchinson Cancer Research Center.  All Rights Reserved.
-
- * This software is licensed under the terms of the GNU Lesser General
- * Public License (LGPL), Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
-
- * THE SOFTWARE IS PROVIDED "AS IS." FRED HUTCHINSON CANCER RESEARCH CENTER MAKES NO
- * REPRESENTATIONS OR WARRANTES OF ANY KIND CONCERNING THE SOFTWARE, EXPRESS OR IMPLIED,
- * INCLUDING, WITHOUT LIMITATION, WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
- * PARTICULAR PURPOSE, NONINFRINGEMENT, OR THE ABSENCE OF LATENT OR OTHER DEFECTS,
- * WHETHER OR NOT DISCOVERABLE.  IN NO EVENT SHALL FRED HUTCHINSON CANCER RESEARCH
- * CENTER OR ITS TRUSTEES, DIRECTORS, OFFICERS, EMPLOYEES, AND AFFILIATES BE LIABLE FOR
- * ANY DAMAGES OF ANY KIND, INCLUDING, WITHOUT LIMITATION, INCIDENTAL OR
- * CONSEQUENTIAL DAMAGES, ECONOMIC DAMAGES OR INJURY TO PROPERTY AND LOST PROFITS,
- * REGARDLESS OF  WHETHER FRED HUTCHINSON CANCER RESEARCH CENTER SHALL BE ADVISED,
- * SHALL HAVE OTHER REASON TO KNOW, OR IN FACT SHALL KNOW OF THE POSSIBILITY OF THE
- * FOREGOING.
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2007-2015 Fred Hutchinson Cancer Research Center and Broad Institute
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
+
 
 package org.broad.igv.feature;
 
 import org.broad.igv.track.WindowFunction;
+
+import java.util.ArrayList;
+import java.util.List;
 
 
 /**
@@ -117,6 +127,27 @@ public class SpliceJunctionFeature extends BasicFeature {
         return junctionDepth;
     }
 
+    /**
+     * Splice junction features by definition have 2 "exons", or more precisely "blocks" in bed lingo.  This
+     * follows Tophat's splice junction bed feature convention.  They are "lazily" created since these are only
+     * used to export splice junction features in Tophat compatible format.
+     * @return
+     */
+    @Override
+    public List<Exon> getExons() {
+        if(exons == null) {
+            exons = new ArrayList<Exon>(2);
+            exons.add(new Exon(getChr(), start, junctionStart, getStrand()));
+            exons.add(new Exon(getChr(), junctionEnd, end, getStrand()));
+        }
+        return exons;
+    }
+
+    @Override
+    public int getExonCount() {
+        return getExons().size();
+    }
+
     public int getJunctionDepth() {
         return junctionDepth;
     }
@@ -153,8 +184,16 @@ public class SpliceJunctionFeature extends BasicFeature {
         return startFlankingRegionDepthArray;
     }
 
+    public void setStartFlankingRegionDepthArray(int[] startFlankingRegionDepthArray) {
+        this.startFlankingRegionDepthArray = startFlankingRegionDepthArray;
+    }
+
     public int[] getEndFlankingRegionDepthArray() {
         return endFlankingRegionDepthArray;
+    }
+
+    public void setEndFlankingRegionDepthArray(int[] endFlankingRegionDepthArray) {
+        this.endFlankingRegionDepthArray = endFlankingRegionDepthArray;
     }
 
     public boolean hasFlankingRegionDepthArrays() {
@@ -168,7 +207,7 @@ public class SpliceJunctionFeature extends BasicFeature {
      *
      * @position -- 1 based coordinates
      */
-    public String getValueString(double position, WindowFunction ignored) {
+    public String getValueString(double position, int mouseX, WindowFunction ignored) {
         StringBuffer valueString = new StringBuffer();
         String name = getName();
         if (name != null) {

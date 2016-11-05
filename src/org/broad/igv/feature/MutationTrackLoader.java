@@ -1,13 +1,28 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
+
 package org.broad.igv.feature;
 
 import org.apache.log4j.Logger;
@@ -37,7 +52,6 @@ public class MutationTrackLoader {
     private static Logger log = Logger.getLogger(MutationTrackLoader.class);
     private ResourceLocator locator = null;
     private Genome genome = null;
-    MUTCodec codec;
 
     public static boolean isMutationAnnotationFile(ResourceLocator locator) throws IOException {
         return MUTCodec.isMutationAnnotationFile(locator);
@@ -48,13 +62,13 @@ public class MutationTrackLoader {
         this.locator = locator;
         this.genome = genome;
 
-        boolean indexed = isIndexed(locator, genome);
-
         List<FeatureTrack> tracks = new ArrayList<FeatureTrack>();
 
-        if (indexed) {
-            String[] samples = getCodec().getSamples();
-            MutationFeatureSource.MutationDataManager dataManager = new MutationFeatureSource.MutationDataManager(locator, genome);
+        MutationFeatureSource.MutationDataManager dataManager = new MutationFeatureSource.MutationDataManager(locator, genome);
+        String[] samples = dataManager.getSamples();
+
+        if (dataManager.isIndexed() && samples != null) {
+
             for (String sampleId : samples) {
                 String id = locator.getPath() + "_" + sampleId;
                 FeatureSource<Mutation> featureSource = new MutationFeatureSource(sampleId, dataManager);
@@ -86,32 +100,6 @@ public class MutationTrackLoader {
         return tracks;
     }
 
-
-    private MUTCodec getCodec() {
-        if (codec == null) codec = new MUTCodec(locator.getPath(), genome);
-        return codec;
-    }
-
-    /**
-     * Test to see if a usable index exists.  In addition to the index, mutation files have an additional requirement
-     * that samples be specified in a header directive.
-     *
-     * @param locator
-     * @return
-     */
-    private boolean isIndexed(ResourceLocator locator, Genome genome) {
-        if (!TrackLoader.isIndexed(locator, genome)) return false;
-
-        try {
-            String[] samples = getCodec().getSamples();
-            return samples != null && samples.length > 0;
-        } catch (Exception e) {
-            log.error("Error creating codec for: " + locator.getPath(), e);
-            return false;
-        }
-
-    }
-
     /**
      * Return a map of runId -> list of mutation objects.   The "runId" field
      * is the track identifier (name) for mutation files.
@@ -124,7 +112,7 @@ public class MutationTrackLoader {
 
         try {
 
-            if (codec == null) codec = new MUTCodec(locator.getPath(), genome);
+            MUTCodec codec = new MUTCodec(locator.getPath(), genome);
 
             Map<String, List<htsjdk.tribble.Feature>> mutationMap = new LinkedHashMap();
 

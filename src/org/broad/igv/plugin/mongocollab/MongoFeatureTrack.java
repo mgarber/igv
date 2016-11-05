@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2013 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.plugin.mongocollab;
@@ -27,12 +41,13 @@ import javax.swing.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.Arrays;
+import java.util.List;
 
 /**
  * @author jacob
  * @date 2013-Sep-27
  */
-public class MongoFeatureTrack extends FeatureTrack{
+public class MongoFeatureTrack extends FeatureTrack {
 
     public MongoFeatureTrack(String id, String name, MongoFeatureSource source) {
         super(id, name, source);
@@ -46,15 +61,16 @@ public class MongoFeatureTrack extends FeatureTrack{
 
     /**
      * Return a menu entry for adding a new feature, or editing a feature the user clicked on.
+     *
      * @param te
      * @param selFeat Selected feature. {@code null} indicates adding a new feature
      * @return
      */
-    private JMenuItem createEditAnnotMenuEntry(TrackClickEvent te, final DBFeature.IGVFeat selFeat){
+    private JMenuItem createEditAnnotMenuEntry(TrackClickEvent te, final DBFeature.IGVFeat selFeat) {
 
         ReferenceFrame frame = te.getFrame();
         boolean hasFrame = frame != null;
-        if(!hasFrame) return null;
+        if (!hasFrame) return null;
 
 
         final boolean editing = selFeat != null;
@@ -77,19 +93,20 @@ public class MongoFeatureTrack extends FeatureTrack{
         return item;
     }
 
-    private DBCollection getCollection(){
+    private DBCollection getCollection() {
         return ((MongoFeatureSource) source).getCollection();
     }
 
     @Override
     public IGVPopupMenu getPopupMenu(TrackClickEvent te) {
         String title = getName();
-        IGVPopupMenu menu = TrackMenuUtils.getPopupMenu(Arrays.<Track>asList(this), title, te);
+        List<Track> tracks = Arrays.<Track>asList(this);
+        IGVPopupMenu menu = TrackMenuUtils.getPopupMenu(tracks, title, te);
 
         //Add annotation or edit existing one
         Feature feat = getFeatureAtMousePosition(te);
         JMenuItem item = createEditAnnotMenuEntry(te, (DBFeature.IGVFeat) feat);
-        if(item != null) menu.add(item);
+        if (item != null) menu.add(item);
 
         return menu;
     }

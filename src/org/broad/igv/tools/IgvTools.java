@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 /*
@@ -16,12 +30,16 @@
 package org.broad.igv.tools;
 
 
+import htsjdk.samtools.*;
+import htsjdk.tribble.index.AbstractIndex;
 import jargs.gnu.CmdLineParser;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.log4j.*;
 import org.broad.igv.Globals;
 import org.broad.igv.exceptions.DataLoadException;
+import org.broad.igv.feature.FeatureFileUtils;
 import org.broad.igv.feature.GFFParser;
+import org.broad.igv.feature.Mutation;
 import org.broad.igv.feature.genome.FastaUtils;
 import org.broad.igv.feature.genome.Genome;
 import org.broad.igv.feature.genome.GenomeDescriptor;
@@ -29,6 +47,8 @@ import org.broad.igv.feature.genome.GenomeManager;
 import org.broad.igv.feature.tribble.CodecFactory;
 import org.broad.igv.feature.tribble.GFFCodec;
 import org.broad.igv.feature.tribble.IGVBEDCodec;
+import org.broad.igv.feature.tribble.MUTCodec;
+import org.broad.igv.maf.MAFtoSAM;
 import org.broad.igv.sam.reader.AlignmentIndexer;
 import org.broad.igv.tdf.TDFUtils;
 import org.broad.igv.tools.converters.BamToBed;
@@ -36,6 +56,7 @@ import org.broad.igv.tools.converters.ExpressionFormatter;
 import org.broad.igv.tools.converters.GCTtoIGVConverter;
 import org.broad.igv.tools.converters.WigToBed;
 import org.broad.igv.tools.sort.Sorter;
+import org.broad.igv.tools.sort.SorterFactory;
 import org.broad.igv.track.TrackType;
 import org.broad.igv.track.WindowFunction;
 import org.broad.igv.ui.ReadmeParser;
@@ -62,6 +83,10 @@ import java.util.*;
  */
 public class IgvTools {
 
+    public static final String CMD_WIGTOBED = "wigtobed";
+    public static final String CMD_VCFTOBED = "vcftobed";
+    public static final String CMD_DENSITIESTOBEDGRAPH = "densitiestobedgraph";
+    public static final String CMD_GEN_GENOME_LIST = "genGenomeList";
     static private Logger log = Logger.getLogger(IgvTools.class);
 
     static final String CMD_TILE = "tile";
@@ -74,6 +99,11 @@ public class IgvTools {
     static final String CMD_GUI = "gui";
     static final String CMD_HELP = "help";
     static final String CMD_BAMTOBED = "bamtobed";
+    static final String CMD_TDFTOBEDGRAPH = "tdftobedgraph";
+    static final String CMD_CONTACTS = "contacts";
+    static final String CMD_DISCORDANT = "discordant";
+    static final String CMD_MAFTOSAM = "maftosam";
+    static final String CMD_SUMWIGS = "sumwigs";
 
     /**
      * Stream for writing messages to the user, which we
@@ -146,6 +176,10 @@ public class IgvTools {
     private static CmdLineParser.Option binSizeOption = null;
     private static CmdLineParser.Option outputDirOption = null;
 
+    // MAF to SAM
+    private static CmdLineParser.Option noSATag = null;
+    private static CmdLineParser.Option combineAlignments = null;
+
     // Trackline
     private static CmdLineParser.Option colorOption = null;
 
@@ -179,7 +213,7 @@ public class IgvTools {
     }
 
     private static void initLogger() {
-        if(Logger.getRootLogger().getAppender("R") == null){
+        if (Logger.getRootLogger().getAppender("R") == null) {
             RollingFileAppender fileAppender = new RollingFileAppender();
             PatternLayout fileLayout = new PatternLayout();
             fileLayout.setConversionPattern("%p [%d{ISO8601}] [%F:%L]  %m%n");
@@ -195,7 +229,7 @@ public class IgvTools {
             //Logger.getRootLogger().addAppender(fileAppender);
         }
 
-        if(Logger.getRootLogger().getAppender(CONSOLE_APPENDER_NAME) == null){
+        if (Logger.getRootLogger().getAppender(CONSOLE_APPENDER_NAME) == null) {
             PatternLayout consoleLayout = new PatternLayout();
             consoleLayout.setConversionPattern("%m%n");
             ConsoleAppender consoleAppender = new ConsoleAppender();
@@ -372,8 +406,8 @@ public class IgvTools {
             } else if (command.equals("splitgff")) {
                 validateArgsLength(nonOptionArgs, 3, "Error in syntax. Expected: " + command + " [options] inputfile outputdir");
                 String outputDirectory = nonOptionArgs[2];
-                GFFParser.splitFileByType(ifile, outputDirectory);
-            } else if(command.equals("gfftobed")){
+                FeatureFileUtils.splitGffFileByType(ifile, outputDirectory);
+            } else if (command.equals("gfftobed")) {
                 validateArgsLength(nonOptionArgs, 3, "Error in syntax. Expected: " + command + " inputfile outputfile");
                 String ofile = nonOptionArgs[2];
                 setWriteToStdOout(ofile);
@@ -392,11 +426,11 @@ public class IgvTools {
                 }
                 String probeFile = (String) parser.getOptionValue(probeFileOption, PROBE_FILE);
                 doGCTtoIGV(typeString, ifile, new File(ofile), probeFile, maxRecords, tmpDirName, genome);
-            } else if (command.toLowerCase().equals("tdftobedgraph")) {
+            } else if (command.toLowerCase().equals(CMD_TDFTOBEDGRAPH)) {
                 validateArgsLength(nonOptionArgs, 3, basic_syntax);
                 String ofile = nonOptionArgs[2];
                 TDFUtils.tdfToBedgraph(ifile, ofile);
-            } else if (command.equals("wigtobed")) {
+            } else if (command.equals(CMD_WIGTOBED)) {
                 validateArgsLength(nonOptionArgs, 2, "Error in syntax. Expected: " + command + " [options] inputfile");
                 String inputFile = nonOptionArgs[1];
                 float hetThreshold = 0.17f;
@@ -408,14 +442,21 @@ public class IgvTools {
                     homThreshold = Float.parseFloat(nonOptionArgs[3]);
                 }
                 WigToBed.run(inputFile, hetThreshold, homThreshold);
-            } else if (command.equals("vcftobed")) {
+            } else if (command.equals(CMD_VCFTOBED)) {
                 validateArgsLength(nonOptionArgs, 3, basic_syntax);
                 String inputFile = nonOptionArgs[1];
                 String outputFile = nonOptionArgs[2];
                 VCFtoBed.convert(inputFile, outputFile);
-            } else if (command.equals("sumwigs")) {
+            } else if (command.equalsIgnoreCase(CMD_MAFTOSAM)) {
+                validateArgsLength(nonOptionArgs, 3, basic_syntax);
+                String inputFile = nonOptionArgs[1];
+                String outputFile = nonOptionArgs[2];
+                Boolean noSATagOption = (Boolean) parser.getOptionValue(noSATag, false);
+                MAFtoSAM.convert(inputFile, outputFile, noSATagOption);
+
+            } else if (command.equals(CMD_SUMWIGS)) {
                 sumWigs(nonOptionArgs[1], nonOptionArgs[2]);
-            } else if (command.equals("densitiestobedgraph")) {
+            } else if (command.equals(CMD_DENSITIESTOBEDGRAPH)) {
                 validateArgsLength(nonOptionArgs, 3, "Error in syntax. Expected: " + command + " [options] inputdir outputdir");
                 File inputDir = new File(nonOptionArgs[1]);
                 File outputDir = new File(nonOptionArgs[2]);
@@ -430,12 +471,16 @@ public class IgvTools {
                 String ofile = nonOptionArgs[2];
                 Boolean pairOption = (Boolean) parser.getOptionValue(pairedCoverageOpt, false);
                 BamToBed.convert(new File(ifile), new File(ofile), pairOption);
-            } else if (command.equalsIgnoreCase("genGenomeList")) {
+            } else if (command.equalsIgnoreCase(CMD_GEN_GENOME_LIST)) {
                 //Generate a genomes.txt list file based on a directory
                 //TODO Probably a better place for this. Users won't generally use it
                 File inDir = new File(ifile);
                 GenomeManager manager = GenomeManager.getInstance();
                 manager.generateGenomeList(inDir, nonOptionArgs[2], nonOptionArgs[3]);
+            } else if (command.equalsIgnoreCase(CMD_CONTACTS)) {
+                PairedUtils.extractInteractions(ifile, nonOptionArgs[2], Integer.parseInt(nonOptionArgs[3]));
+            } else if (command.equalsIgnoreCase(CMD_DISCORDANT)) {
+                PairedUtils.extractUnexpectedPairs(ifile, nonOptionArgs[2]);
             } else {
                 throw new PreprocessingException("Unknown command: " + argv[EXT_FACTOR]);
             }
@@ -444,7 +489,7 @@ public class IgvTools {
         }
     }
 
-    private void GFFToBed(String ifile, String ofile) throws FileNotFoundException{
+    private void GFFToBed(String ifile, String ofile) throws FileNotFoundException {
         IGVBEDCodec outCodec = new IGVBEDCodec();
         GFFParser parser = new GFFParser();
         GFFCodec codec = null;
@@ -455,7 +500,7 @@ public class IgvTools {
         }
         BufferedReader reader = null;
         PrintStream outStream = System.out;
-        if(!ofile.equals(STDOUT_FILE_STR)){
+        if (!ofile.equals(STDOUT_FILE_STR)) {
             outStream = new PrintStream(new FileOutputStream(ofile));
         }
         try {
@@ -469,7 +514,7 @@ public class IgvTools {
         } catch (IOException e) {
             log.error(e.getMessage(), e);
         } finally {
-            if (reader != null){
+            if (reader != null) {
                 try {
                     reader.close();
                 } catch (IOException e) {
@@ -486,13 +531,14 @@ public class IgvTools {
     /**
      * if ofile.equals(STDOUT_FILE_STR), write output to stdout. This also means redirecting log statements
      * to someplace other than stdout, we use stderr
+     *
      * @param ofile
      * @return Whether output will be written to stdout
      */
     private boolean setWriteToStdOout(String ofile) {
         //Output will be written to stdout instead of file,
         //need to redirect user messages
-        if(ofile.equals(STDOUT_FILE_STR)){
+        if (ofile.equals(STDOUT_FILE_STR)) {
 
             userMessageWriter = System.err;
 
@@ -539,8 +585,8 @@ public class IgvTools {
 
                 // Trackline
                 colorOption = parser.addStringOption("color");
+
             } else {
-                // options for gct files
                 probeFileOption = parser.addStringOption('p', "probeFile");
                 typeOption = parser.addStringOption("fileType");
             }
@@ -551,6 +597,12 @@ public class IgvTools {
             binSizeOption = parser.addIntegerOption("binSize");
             outputDirOption = parser.addStringOption("outputDir");
         }
+
+        if (command.equals(CMD_MAFTOSAM)) {
+            // MAF to SAM
+            noSATag = parser.addBooleanOption("noSATag");
+        }
+
 
         return parser;
     }
@@ -795,13 +847,13 @@ public class IgvTools {
         File wigFile = null;
         boolean wigStdOut = false;
         String[] files = ofile.split(",");
-        
-        for(String fileTok: files){
+
+        for (String fileTok : files) {
             if (fileTok.endsWith("wig")) {
                 wigFile = new File(fileTok);
             } else if (fileTok.endsWith("tdf")) {
                 tdfFile = new File(fileTok);
-            }else if (fileTok.equals(STDOUT_FILE_STR)){
+            } else if (fileTok.equals(STDOUT_FILE_STR)) {
                 wigStdOut = true;
             }
         }
@@ -870,33 +922,28 @@ public class IgvTools {
      * @throws IOException
      */
     public String doIndex(String ifile, String typeString, String outputDir, int indexType, int binSize) throws IOException {
+
         File inputFile = new File(ifile);
 
         if (outputDir == null) {
             outputDir = inputFile.getParent();
         }
-        String outputFileName = (new File(outputDir, inputFile.getName())).getAbsolutePath();
 
         if (typeString.endsWith("gz")) {
             log.error("Cannot index a gzipped file");
             throw new PreprocessingException("Cannot index a gzipped file");
         }
 
-        if (typeString.endsWith("bam")) {
-            String msg = "Cannot index a BAM file. Use the samtools package for sorting and indexing BAM files.";
-            log.error(msg);
-            throw new PreprocessingException(msg);
-        }
-
         String[] fastaTypes = new String[]{"fa", "fna", "fasta"};
         boolean isFasta = false;
+
         //We have different naming conventions for different index files
+        String outputFileName = (new File(outputDir, inputFile.getName())).getAbsolutePath();
         if (typeString.endsWith("sam") && !outputFileName.endsWith(".sai")) {
             outputFileName += ".sai";
         } else if (typeString.endsWith("bam") && !outputFileName.endsWith(".bai")) {
             outputFileName += ".bai";
         } else {
-
             for (String ft : fastaTypes) {
                 if (typeString.endsWith(ft) && !outputFileName.endsWith(".fai")) {
                     outputFileName += ".fai";
@@ -904,7 +951,6 @@ public class IgvTools {
                     break;
                 }
             }
-
 
             if (!isFasta && !outputFileName.endsWith(".idx")) {
                 outputFileName += ".idx";
@@ -919,10 +965,28 @@ public class IgvTools {
             if (typeString.endsWith("sam")) {
                 AlignmentIndexer indexer = AlignmentIndexer.getInstance(inputFile, null, null);
                 indexer.createSamIndex(outputFile);
-                return outputFileName;
             } else if (isFasta) {
                 FastaUtils.createIndexFile(inputFile.getAbsolutePath(), outputFileName);
-                return outputFileName;
+            } else if (typeString.endsWith("bam")) {
+
+                indexBAM(inputFile, outputFileName);
+
+            } else {
+                Genome genome = null;  // <= don't do chromosome conversion
+                FeatureCodec codec = CodecFactory.getCodec(ifile, genome);
+                if (codec != null) {
+                    try {
+                        createTribbleIndex(ifile, outputFile, indexType, binSize, codec);
+                    } catch (TribbleException.MalformedFeatureFile e) {
+                        StringBuffer buf = new StringBuffer();
+                        buf.append("<html>Files must be sorted by start position prior to indexing.<br>");
+                        buf.append(e.getMessage());
+                        buf.append("<br><br>Note: igvtools can be used to sort the file, select \"File > Run igvtools...\".");
+                        MessageUtils.showMessage(buf.toString());
+                    }
+                } else {
+                    throw new DataLoadException("Unknown File Type", ifile);
+                }
             }
         } catch (Exception e) {
             // Delete output file as it is probably corrupt
@@ -931,29 +995,35 @@ public class IgvTools {
             }
             throw new RuntimeException(e);
         }
-
-
-        Genome genome = null;  // <= don't do chromosome conversion
-        FeatureCodec codec = CodecFactory.getCodec(ifile, genome);
-        if (codec != null) {
-            try {
-                createTribbleIndex(ifile, outputFile, indexType, binSize, codec);
-            } catch (TribbleException.MalformedFeatureFile e) {
-                StringBuffer buf = new StringBuffer();
-                buf.append("<html>Files must be sorted by start position prior to indexing.<br>");
-                buf.append(e.getMessage());
-                buf.append("<br><br>Note: igvtools can be used to sort the file, select \"File > Run igvtools...\".");
-                MessageUtils.showMessage(buf.toString());
-            }
-        } else {
-            throw new DataLoadException("Unknown File Type", ifile);
-        }
         userMessageWriter.flush();
         return outputFileName;
 
     }
 
-    public static void writeTribbleIndex(Index idx, String idxFile) throws IOException{
+    public void indexBAM(File inputFile, String outputFileName) {
+        final File bamIndexFile = new File(outputFileName);
+        SamReaderFactory.setDefaultValidationStringency(ValidationStringency.SILENT);
+        final SamReader samReader = SamReaderFactory.makeDefault().
+                enable(SamReaderFactory.Option.INCLUDE_SOURCE_IN_RECORDS).
+                open(inputFile);
+        BAMIndexer indexer = new BAMIndexer(bamIndexFile, samReader.getFileHeader());
+
+        long totalRecords = 0;
+
+        // create and write the content
+        SAMRecordIterator iter = samReader.iterator().assertSorted(SAMFileHeader.SortOrder.coordinate);
+        while(iter.hasNext()) {
+            SAMRecord rec = iter.next();
+            if (++totalRecords % 1000000 == 0) {
+                if (null != log) log.info(totalRecords + " reads processed ...");
+            }
+            indexer.processAlignment(rec);
+        }
+        indexer.finish();
+    }
+
+
+    public static void writeTribbleIndex(Index idx, String idxFile) throws IOException {
         LittleEndianOutputStream stream = null;
         try {
             stream = new LittleEndianOutputStream(new BufferedOutputStream(new FileOutputStream(idxFile)));
@@ -982,14 +1052,29 @@ public class IgvTools {
      * @throws IOException
      */
     private void createTribbleIndex(String ifile, File outputFile, int indexType, int binSize, FeatureCodec codec) throws IOException {
+
+
         File inputFile = new File(ifile);
-        Index idx = null;
+        AbstractIndex idx = null;
         if (indexType == LINEAR_INDEX) {
             idx = IndexFactory.createLinearIndex(inputFile, codec, binSize);
         } else {
             idx = IndexFactory.createIntervalIndex(inputFile, codec, binSize);
         }
         if (idx != null) {
+
+            // Must scan mutation files for sample names
+            if (codec instanceof MUTCodec) {
+                Collection<String> sampleNames = getSampleNames(ifile, (MUTCodec) codec);
+                StringBuffer buf = new StringBuffer();
+                for (String sn : sampleNames) {
+                    buf.append(sn);
+                    buf.append(",");
+                }
+                idx.addProperty("samples", buf.toString());
+            }
+
+
             String idxFile;
             if (outputFile != null) {
                 idxFile = outputFile.getAbsolutePath();
@@ -1000,6 +1085,25 @@ public class IgvTools {
         }
     }
 
+    private Collection<String> getSampleNames(String inputFile, MUTCodec codec) throws IOException {
+
+        BufferedReader reader = null;
+
+        try {
+            HashSet<String> sampleNames = new HashSet<String>();
+            String nextLine;
+            reader = new BufferedReader(new FileReader(inputFile));
+            while ((nextLine = reader.readLine()) != null) {
+                Mutation mut = codec.decode(nextLine);
+                if (mut != null) {
+                    sampleNames.add(mut.getSampleId());
+                }
+            }
+            return sampleNames;
+        } finally {
+            if (reader != null) reader.close();
+        }
+    }
 
     public void doSort(String ifile, String ofile, String tmpDirName, int maxRecords) {
 
@@ -1007,7 +1111,8 @@ public class IgvTools {
         File inputFile = new File(ifile);
         boolean writeStdOut = ofile.equals(STDOUT_FILE_STR);
         File outputFile = writeStdOut ? null : new File(ofile);
-        Sorter sorter = Sorter.getSorter(inputFile, outputFile);
+
+        Sorter sorter = SorterFactory.getSorter(inputFile, outputFile);
         if (tmpDirName != null && tmpDirName.trim().length() > 0) {
             File tmpDir = new File(tmpDirName);
             if (!tmpDir.exists()) {
@@ -1054,7 +1159,7 @@ public class IgvTools {
             genomeFile = new File(rootDir, "genomes" + File.separator + genomeFileOrID + ".genome");
 
         }
-        if(!genomeFile.exists()) {
+        if (!genomeFile.exists()) {
             genomeFile = new File(rootDir, "genomes" + File.separator + genomeFileOrID + ".chrom.sizes");
         }
         if (!genomeFile.exists()) {
@@ -1101,6 +1206,7 @@ public class IgvTools {
                 typeString.endsWith("tab") ||
                 typeString.endsWith("mage-tab") ||
                 typeString.endsWith("bedgraph") ||
+                typeString.endsWith("bdg") ||
                 typeString.endsWith("ewig.list") ||
                 Preprocessor.isAlignmentFile(typeString))) {
             throw new PreprocessingException("Tile command not supported for files of type: " + typeString);

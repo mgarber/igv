@@ -1,14 +1,28 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not
- * responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL), Version 2.1 which is
- * available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
+
 package org.broad.igv.feature;
 
 
@@ -17,6 +31,7 @@ import org.broad.igv.feature.tribble.IGVBEDCodec;
 import org.broad.igv.util.ParsingUtils;
 import org.broad.igv.util.ResourceLocator;
 import htsjdk.tribble.Feature;
+import org.broadinstitute.gatk.utils.collections.PrimitivePair;
 
 import java.io.*;
 import java.util.*;
@@ -26,6 +41,9 @@ import java.util.*;
  */
 public class FeatureFileUtils {
 
+
+    static Set<String> types = new HashSet(Arrays.asList("SINE", "LINE", "LTR", "DNA", "Simple_repeat",
+            "Low_complexity", "Satellite", "RNA", "Other", "Unknown", "Uncategorized"));
 
     /**
      * Compute feature density in units of # / window.  Note: This function could be extended to other file types by
@@ -113,6 +131,173 @@ public class FeatureFileUtils {
 
     }
 
+    /**
+     * Utility to convert a file with the following format to "bed"
+     * ILMN_2087817	chrY:9529429:9529478:+					        // "1" based?
+     * ILMN_2204360	chrY:9598604:9598615:-	chrY:9590985:9591022:-
+     *
+     * @param iFile
+     * @param oFile
+     * @param includeMultiMappings if false probes with multiple location mappings are filtered out
+     */
+    public static void probeToBed(String iFile, String oFile, boolean includeMultiMappings) throws IOException {
+
+        BufferedReader br = null;
+        PrintWriter pw = null;
+
+        try {
+            br = ParsingUtils.openBufferedReader(iFile);
+            pw = new PrintWriter(new FileWriter(oFile));
+
+            String nextLine;
+            br.readLine();  // eat header
+            while ((nextLine = br.readLine()) != null) {
+
+                String[] tokens = Globals.commaPattern.split(nextLine);
+                String probe = tokens[0];
+
+                if (tokens.length < 1 || (tokens.length > 2 && !includeMultiMappings)) continue;
+
+                for (int i = 1; i < tokens.length; i++) {
+
+                    String loc = tokens[i];
+                    String[] locParts = Globals.colonPattern.split(loc);
+                    String chr = locParts[0];
+                    int start = Integer.parseInt(locParts[1]) - 1;
+                    int end = Integer.parseInt(locParts[2]);
+                    String strand = locParts[3];
+                    pw.println(chr + "\t" + start + "\t" + end + "\t" + probe + "\t1000\t" + strand);
+                }
+            }
+        } finally {
+            if (br != null) br.close();
+            if (pw != null) pw.close();
+        }
+
+
+    }
+
+    public static void splitRepeatMasker(String iFile, String outputDirectory, String prefix) throws IOException {
+
+
+        BufferedReader br = null;
+        Map<String, PrintWriter> pws = new HashMap();
+
+        try {
+            br = new BufferedReader(new FileReader(iFile));
+            File dir = new File(outputDirectory);
+            for (String type : types) {
+                File f = new File(dir, prefix + type + ".bed");
+                pws.put(type, new PrintWriter(new BufferedWriter(new FileWriter(f))));
+            }
+
+            String nextLine;
+            while ((nextLine = br.readLine()) != null) {
+                if (nextLine.startsWith("#")) continue;
+                String[] tokens = nextLine.split("\t");
+                String type = getType(tokens[5]);
+
+                // Rerrange columns for legal bed
+                pws.get(type).println(tokens[0] + "\t" + tokens[1] + "\t" + tokens[2] + "\t" +
+                        tokens[4] + "\t" + tokens[3]);
+            }
+
+
+        } finally {
+            if (br != null) {
+                br.close();
+            }
+            for (PrintWriter pw : pws.values()) {
+                pw.close();
+            }
+        }
+
+    }
+
+    public static String getType(String s) {
+
+        s = s.replace("?", "");
+
+        if (s.contains("RNA")) {
+            return "RNA";
+        } else if (s.equals("RC")) {
+            return "Other";
+        } else if (s.equals("repClass")) {
+            return "Other";
+        } else if (types.contains(s)) {
+            return s;
+        } else {
+            return "Uncategorized";
+        }
+
+    }
+
+    /**
+     * Given a GFF File, creates a new GFF file for each type. Any feature type
+     * which is part of a "gene" ( {@link SequenceOntology#geneParts} ) are put in the same file,
+     * others are put in different files. So features of type "gene", "exon", and "mrna"
+     * would go in gene.gff, but features of type "myFeature" would go in myFeature.gff.
+     *
+     * @param gffFile
+     * @param outputDirectory
+     * @throws IOException
+     */
+    public static void splitGffFileByType(String gffFile, String outputDirectory) throws IOException {
+
+        BufferedReader br = new BufferedReader(new FileReader(gffFile));
+        String nextLine;
+        String ext = "." + gffFile.substring(gffFile.length() - 4);
+
+        Map<String, PrintWriter> writers = new HashMap();
+
+        while ((nextLine = br.readLine()) != null) {
+            nextLine = nextLine.trim();
+            if (!nextLine.startsWith("#")) {
+                String[] tokens = Globals.tabPattern.split(nextLine.trim().replaceAll("\"", ""), -1);
+
+                String type = tokens[2];
+                if (SequenceOntology.geneParts.contains(type)) {
+                    type = "gene";
+                }
+                if (!writers.containsKey(type)) {
+                    writers.put(type,
+                            new PrintWriter(new FileWriter(new File(outputDirectory, type + ext))));
+                }
+            }
+        }
+        br.close();
+
+        br = new BufferedReader(new FileReader(gffFile));
+        PrintWriter currentWriter = null;
+        while ((nextLine = br.readLine()) != null) {
+            nextLine = nextLine.trim();
+            if (nextLine.startsWith("#")) {
+                for (PrintWriter pw : writers.values()) {
+                    pw.println(nextLine);
+                }
+            } else {
+                String[] tokens = Globals.tabPattern.split(nextLine.trim().replaceAll("\"", ""), -1);
+                String type = tokens[2];
+                if (SequenceOntology.geneParts.contains(type)) {
+                    type = "gene";
+                }
+                currentWriter = writers.get(type);
+
+                if (currentWriter != null) {
+                    currentWriter.println(nextLine);
+                } else {
+                    System.out.println("No writer for: " + type);
+                }
+            }
+
+        }
+
+        br.close();
+        for (PrintWriter pw : writers.values()) {
+            pw.close();
+        }
+    }
+
     static class Window {
         int idx;
         int count;
@@ -124,11 +309,6 @@ public class FeatureFileUtils {
         void increment() {
             count++;
         }
-    }
-
-
-    public static void main(String [] args) throws IOException {
-        createCanonicalGeneFile(args[0], args[1]);
     }
 
     /**
@@ -238,6 +418,83 @@ public class FeatureFileUtils {
         }
     }
 
+    /*
+ 0     `bin` smallint(5) unsigned NOT NULL,
+ 1 `name` varchar(255) NOT NULL,
+ 2 `chrom` varchar(255) NOT NULL,
+ 3 `strand` char(1) NOT NULL,
+ 4 `txStart` int(10) unsigned NOT NULL,
+ 5 `txEnd` int(10) unsigned NOT NULL,
+ 6 `cdsStart` int(10) unsigned NOT NULL,
+ 7 `cdsEnd` int(10) unsigned NOT NULL,
+ 8 `exonCount` int(10) unsigned NOT NULL,
+ 9 `exonStarts` longblob NOT NULL,
+ 10 `exonEnds` longblob NOT NULL,
+ 11 `score` int(11) DEFAULT NULL,
+ 12 `name2` varchar(255) NOT NULL,
+ 13 `cdsStartStat` enum('none','unk','incmpl','cmpl') NOT NULL,
+ 14 `cdsEndStat` enum('none','unk','incmpl','cmpl') NOT NULL,
+ 15 `exonFrames` longblob NOT NULL,
+     */
+    static void refgeneToBed(String iFile, String outputFile) throws IOException {
+
+        BufferedReader br = null;
+        PrintWriter pw = null;
+
+        try {
+            br = new BufferedReader(new FileReader(iFile));
+            pw = new PrintWriter(new BufferedWriter(new FileWriter(outputFile)));
+
+            String nextLine;
+            while ((nextLine = br.readLine()) != null) {
+
+                if (nextLine.startsWith("#") || nextLine.startsWith("track") || nextLine.startsWith("browser")) {
+                    pw.println(nextLine);
+                    continue;
+                }
+
+                String[] tokens = Globals.whitespacePattern.split(nextLine);
+
+                String chr = tokens[2];
+                int start = Integer.parseInt(tokens[4]);
+                String end = tokens[5];
+                String name = tokens[12];
+                String score = "1000";
+                String strand = tokens[3];
+                String thickStart = tokens[6];
+                String thickEnd = tokens[7];
+                String itemRGB = ".";
+                int blockCount = Integer.parseInt(tokens[8]);
+
+                String exonStarts = tokens[9];
+                String[] stok = Globals.commaPattern.split(exonStarts);
+                String[] etok = Globals.commaPattern.split(tokens[10]);
+
+                String blockStarts = "";
+                String blockSizes = "";
+
+                for (int i = 0; i < blockCount; i++) {
+                    final int bs = Integer.parseInt(stok[i]);
+                    blockStarts += String.valueOf(bs - start);
+                    blockSizes += String.valueOf(Integer.parseInt(etok[i]) - bs);
+                    if (i != blockCount - 1) {
+                        blockStarts += ",";
+                        blockSizes += ",";
+                    }
+                }
+
+                pw.println(chr + "\t" + start + "\t" + end + "\t" + name + "\t" + score + "\t" + strand + "\t" +
+                        thickStart + "\t" + thickEnd + "\t" + itemRGB + "\t" + blockCount + "\t" + blockSizes + "\t" + blockStarts);
+
+
+            }
+
+        } finally {
+            if (br != null) br.close();
+            if (pw != null) pw.close();
+        }
+    }
+
 
     private static void mergeExons(BasicFeature gene, List<Exon> exons) {
         Set<IExon> exonProxies = new HashSet<IExon>(gene.getExons());
@@ -320,4 +577,10 @@ public class FeatureFileUtils {
             pw.close();
         }
     }
+
+
+    public static void main(String[] args) throws IOException {
+        refgeneToBed(args[0], args[1]);
+    }
+
 }

@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 
@@ -129,6 +143,9 @@ public class VariantTrack extends FeatureTrack implements TrackGroupEventListene
      */
     private ColorMode coloring = ColorMode.GENOTYPE;
 
+
+    private ColorMode siteColorMode;
+
     /**
      * When true, variants that are marked filtering are not drawn.
      */
@@ -174,7 +191,12 @@ public class VariantTrack extends FeatureTrack implements TrackGroupEventListene
     public VariantTrack(ResourceLocator locator, FeatureSource source, List<String> samples,
                         boolean enableMethylationRateSupport) {
         super(locator, source);
-        String path = locator != null ? locator.getPath() : null;
+
+        PreferenceManager prefMgr = PreferenceManager.getInstance();
+
+        String path = locator == null ? null : locator.getPath();
+
+
         this.renderer = new VariantRenderer(this);
 
         this.enableMethylationRateSupport = enableMethylationRateSupport;
@@ -183,6 +205,9 @@ public class VariantTrack extends FeatureTrack implements TrackGroupEventListene
             coloring = ColorMode.METHYLATION_RATE;
         }
 
+        this.siteColorMode = prefMgr.getAsBoolean(PreferenceManager.VARIANT_COLOR_BY_ALLELE_FREQ) ?
+                ColorMode.ALLELE_FREQUENCY :
+                ColorMode.ALLELE_FRACTION;
 
         this.allSamples = samples;
 
@@ -197,8 +222,16 @@ public class VariantTrack extends FeatureTrack implements TrackGroupEventListene
         }
 
         // If sample->bam list file is supplied enable vcfToBamMode.
-        String vcfToBamMapping = path != null ? path + ".mapping" : null;
-        if (ParsingUtils.pathExists(vcfToBamMapping)) {
+        String vcfToBamMapping = locator == null ? null : locator.getMappingPath();
+
+        boolean bypassFileAutoDiscovery = prefMgr.getAsBoolean(PreferenceManager.BYPASS_FILE_AUTO_DISCOVERY);
+        if (vcfToBamMapping == null && path != null && !bypassFileAutoDiscovery) {
+            if (ParsingUtils.pathExists(path + ".mapping")) {
+                vcfToBamMapping = path + ".mapping";
+            }
+        }
+
+        if (vcfToBamMapping != null && !vcfToBamMapping.equals(".")) {
             loadAlignmentMappings(vcfToBamMapping);
         }
 
@@ -206,7 +239,7 @@ public class VariantTrack extends FeatureTrack implements TrackGroupEventListene
         // Ugly test on source is to avoid having to add "isIndexed" to a zillion feature source classes.  The intent
         // is to skip this if using a non-indexed source.
         if (!(source instanceof TribbleFeatureSource && ((TribbleFeatureSource) source).isIndexed() == false)) {
-            int defVisibilityWindow = PreferenceManager.getInstance().getAsInt(PreferenceManager.DEFAULT_VISIBILITY_WINDOW);
+            int defVisibilityWindow = prefMgr.getAsInt(PreferenceManager.DEFAULT_VISIBILITY_WINDOW);
             if (defVisibilityWindow > 0) {
                 setVisibilityWindow(defVisibilityWindow * 1000);
             } else {
@@ -824,6 +857,15 @@ public class VariantTrack extends FeatureTrack implements TrackGroupEventListene
     }
 
 
+    @XmlAttribute
+    public ColorMode getSiteColorMode() {
+        return siteColorMode;
+    }
+
+    public void setSiteColorMode(ColorMode siteColorMode) {
+        this.siteColorMode = siteColorMode;
+    }
+
     public String getNameValueString(int y) {
         if (y < top + variantBandHeight) {
             return getName();
@@ -838,23 +880,22 @@ public class VariantTrack extends FeatureTrack implements TrackGroupEventListene
      *
      * @param chr
      * @param position - position in UCSC "0 based"  genomic coordinates
-     * @param y        - pixel position in panel coordinates (i.e. not track coordinates)
-     * @param frame
-     * @return
+     * @param mouseX
+     * @param frame    @return
      */
-    public String getValueStringAt(String chr, double position, int y, ReferenceFrame frame) {
+    public String getValueStringAt(String chr, double position, int mouseX, int mouseY, ReferenceFrame frame) {
 
         try {
             double maxDistance = 10 * frame.getScale();
-            if (y < top + getVariantsHeight()) {
-                int modY = areFeaturesStacked() ? y : -1;
+            if (mouseY < top + getVariantsHeight()) {
+                int modY = areFeaturesStacked() ? mouseY : -1;
                 Variant variant = getFeatureClosest(position, modY, frame.getName(), maxDistance);
                 if (variant == null) return null;
 
                 return getVariantToolTip(variant);
             } else {
                 if (sampleBounds == null || sampleBounds.isEmpty()) return null;
-                String sample = getSampleAtPosition(y);
+                String sample = getSampleAtPosition(mouseY);
                 if (sample == null) return null;
 
                 Variant variant = getFeatureClosest(position, -1, frame.getName(), maxDistance);
@@ -959,8 +1000,10 @@ public class VariantTrack extends FeatureTrack implements TrackGroupEventListene
         toolTip.append("<br>ID: " + id);
         toolTip.append("<br>Reference: " + variant.getReference());
         List<Allele> alternates = variant.getAlternateAlleles();
+        String alternateString = null;
         if (alternates.size() > 0) {
-            toolTip.append("<br>Alternate: " + StringUtils.join(alternates, ","));
+            alternateString = StringUtils.join(alternates, ",");
+            toolTip.append("<br>Alternate: " + alternateString);
         }
 
         toolTip.append("<br>Qual: " + numFormat.format(variant.getPhredScaledQual()));
@@ -971,37 +1014,47 @@ public class VariantTrack extends FeatureTrack implements TrackGroupEventListene
         } else {
             toolTip.append("<br>Is Filtered Out: No</b><br>");
         }
-        toolTip.append("<br><b>Alleles:</b>");
-        toolTip.append(getAlleleToolTip(variant));
 
-        double[] af = variant.getAlleleFreqs();
-        if (af[0] < 0 && variant.getSampleNames().size() > 0) {
-            af = new double[]{variant.getAlleleFraction()};
-        }
-        String afMsg = "Unknown";
-        if (af[0] >= 0) {
-            afMsg = numFormat.format(af[0]);
-            for (int ii = 1; ii < af.length; ii++) {
-                afMsg += ", " + numFormat.format(af[ii]);
+        if (alternateString != null) {
+            toolTip.append("<br><b>Alleles:</b>");
+
+            toolTip.append("<br>Alternate Alleles: " + alternateString);
+
+            int[] ac = variant.getAlleleCounts();
+            if (ac != null) {
+                String acString = ac.length > 1 ? "<br>Allele Counts: " : "<br>Allele Count: ";
+                for (int i = 0; i < ac.length; i++) {
+                    acString += Integer.toString(ac[i]);
+                    if (i < ac.length - 1) acString += ", ";
+                }
+                toolTip.append(acString);
             }
-        }
-        toolTip.append("<br>Allele Frequency: " + afMsg + "<br>");
 
-        if (variant.getSampleNames().size() > 0) {
-            double afrac = variant.getAlleleFraction();
-            toolTip = toolTip.append("<br>Minor Allele Fraction: " + numFormat.format(afrac) + "<br>");
+            int totalAlleleCount = variant.getTotalAlleleCount();
+            if (totalAlleleCount > 0) {
+                toolTip.append("<br>Total # Alleles: " + String.valueOf(totalAlleleCount));
+            }
+
+            double[] af = variant.getAlleleFreqs();
+            String afString = af.length > 1 ? "<br>Allele Fequencies: " : "<br>Allele Frequency: ";
+            for (int i = 0; i < af.length; i++) {
+                afString += Double.toString(af[i]);
+                if (i < af.length - 1) afString += ", ";
+            }
+            toolTip.append(afString);
+        }
+        if (variant.getAttributes().size() > 0) {
+            toolTip.append(getVariantInfo(variant));
         }
 
-        toolTip.append("<br><b>Genotypes:</b>");
-        toolTip.append(getGenotypesSummaryTooltip(variant) + "<br>");
-        toolTip.append(getVariantInfo(variant) + "<br>");
+
         return toolTip.toString();
     }
 
     protected String getVariantInfo(Variant variant) {
         Set<String> keys = variant.getAttributes().keySet();
         if (keys.size() > 0) {
-            String toolTip = "<br><b>Variant Attributes</b>";
+            String toolTip = "<br><br><b>Variant Attributes</b>";
             int count = 0;
 
             // Put AF and GMAF and put at the top, if present
@@ -1010,6 +1063,7 @@ public class VariantTrack extends FeatureTrack implements TrackGroupEventListene
             if (afValue != null && afValue.length() > 0 && !afValue.equals("null")) {
                 toolTip = toolTip.concat("<br>" + getFullName(k) + ": " + variant.getAttributeAsString(k));
             }
+
             k = "GMAF";
             afValue = variant.getAttributeAsString(k);
             if (afValue != null && afValue.length() > 0 && !afValue.equals("null")) {
@@ -1086,7 +1140,7 @@ public class VariantTrack extends FeatureTrack implements TrackGroupEventListene
     }
 
     public static enum ColorMode {
-        GENOTYPE, METHYLATION_RATE, ALLELE
+        GENOTYPE, METHYLATION_RATE, ALLELE_FREQUENCY, ALLELE_FRACTION
     }
 
     public static enum BackgroundType {
@@ -1098,8 +1152,8 @@ public class VariantTrack extends FeatureTrack implements TrackGroupEventListene
 
     static {
         fullNames.put("AA", "Ancestral Allele");
-        fullNames.put("AC", "Allele Count in Genotypes");
-        fullNames.put("AN", "Total Alleles in Genotypes");
+        fullNames.put("AC", "Allele Count");
+        fullNames.put("AN", "Total Alleles");
         fullNames.put("AF", "Allele Frequency");
         fullNames.put("DP", "Depth");
         fullNames.put("MQ", "Mapping Quality");
@@ -1165,33 +1219,6 @@ public class VariantTrack extends FeatureTrack implements TrackGroupEventListene
         return toolTip;
     }
 
-    private String getAlleleToolTip(Variant counts) {
-        double noCall = counts.getNoCallCount() * 2;
-        double aNum = (counts.getHetCount() + counts.getHomRefCount() + counts.getHomVarCount()) * 2;
-        double aCount = (counts.getHomVarCount() * 2 + counts.getHetCount()) * 2;
-
-        String toolTip = "<br>No Call: " + (int) noCall;
-        toolTip = toolTip.concat("<br>Allele Num: " + (int) aNum);
-        toolTip = toolTip.concat("<br>Allele Count: " + (int) aCount);
-        return toolTip;
-    }
-
-    private String getGenotypesSummaryTooltip(Variant counts) {
-        int noCall = counts.getNoCallCount();
-        int homRef = counts.getHomRefCount();
-        int nonVar = noCall + homRef;
-        int het = counts.getHetCount();
-        int homVar = counts.getHomVarCount();
-        int var = het + homVar;
-
-        String toolTip = "<br>Non Variant: " + nonVar;
-        toolTip = toolTip.concat("<br> - No Call: " + noCall);
-        toolTip = toolTip.concat("<br> - Hom Ref: " + homRef);
-        toolTip = toolTip.concat("<br>Variant: " + var);
-        toolTip = toolTip.concat("<br> - Het: " + het);
-        toolTip = toolTip.concat("<br> - Hom Var: " + homVar);
-        return toolTip;
-    }
 
     /**
      * Return the {@code Variant} object closest to the specified event

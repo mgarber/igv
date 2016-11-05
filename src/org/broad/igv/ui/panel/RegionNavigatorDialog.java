@@ -1,30 +1,39 @@
-/**
- * Copyright (c) 2010-2011 by Fred Hutchinson Cancer Research Center.  All Rights Reserved.
-
- * This software is licensed under the terms of the GNU Lesser General
- * Public License (LGPL), Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
-
- * THE SOFTWARE IS PROVIDED "AS IS." FRED HUTCHINSON CANCER RESEARCH CENTER MAKES NO
- * REPRESENTATIONS OR WARRANTES OF ANY KIND CONCERNING THE SOFTWARE, EXPRESS OR IMPLIED,
- * INCLUDING, WITHOUT LIMITATION, WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
- * PARTICULAR PURPOSE, NONINFRINGEMENT, OR THE ABSENCE OF LATENT OR OTHER DEFECTS,
- * WHETHER OR NOT DISCOVERABLE.  IN NO EVENT SHALL FRED HUTCHINSON CANCER RESEARCH
- * CENTER OR ITS TRUSTEES, DIRECTORS, OFFICERS, EMPLOYEES, AND AFFILIATES BE LIABLE FOR
- * ANY DAMAGES OF ANY KIND, INCLUDING, WITHOUT LIMITATION, INCIDENTAL OR
- * CONSEQUENTIAL DAMAGES, ECONOMIC DAMAGES OR INJURY TO PROPERTY AND LOST PROFITS,
- * REGARDLESS OF  WHETHER FRED HUTCHINSON CANCER RESEARCH CENTER SHALL BE ADVISED,
- * SHALL HAVE OTHER REASON TO KNOW, OR IN FACT SHALL KNOW OF THE POSSIBILITY OF THE
- * FOREGOING.
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2007-2015 Fred Hutchinson Cancer Research Center and Broad Institute
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
+
+
 package org.broad.igv.ui.panel;
 
-import com.google.common.eventbus.Subscribe;
 import org.apache.log4j.Logger;
 import org.broad.igv.feature.Range;
 import org.broad.igv.feature.RegionOfInterest;
 import org.broad.igv.feature.genome.GenomeManager;
 import org.broad.igv.lists.GeneList;
 import org.broad.igv.ui.IGV;
+import org.broad.igv.ui.event.IGVEventBus;
+import org.broad.igv.ui.event.IGVEventObserver;
 import org.broad.igv.ui.event.ViewChange;
 import org.broad.igv.util.StringUtils;
 
@@ -49,7 +58,7 @@ import java.util.List;
  *         This dialog is not intended to be persistent.  To view one of these, create it.
  *         <p/>
  */
-public class RegionNavigatorDialog extends JDialog implements Observer{
+public class RegionNavigatorDialog extends JDialog implements Observer, IGVEventObserver {
 
     private static Logger log = Logger.getLogger(AttributePanel.class);
 
@@ -122,9 +131,8 @@ public class RegionNavigatorDialog extends JDialog implements Observer{
         synchRegions();
     }
 
-    @Subscribe
-    public void receiveChromosomeChanged(ViewChange.ChromosomeChangeResult e){
-        synchRegions();
+    public void receiveEvent(Object e) {
+            synchRegions();
     }
 
     /**
@@ -135,7 +143,7 @@ public class RegionNavigatorDialog extends JDialog implements Observer{
         synchingRegions = true;
         List<RegionOfInterest> regions = retrieveRegionsAsList();
         regionTableModel = (DefaultTableModel) regionTable.getModel();
-        while (regionTableModel.getRowCount() > 0){
+        while (regionTableModel.getRowCount() > 0) {
             regionTableModel.removeRow(0);
         }
         regionTableModel.setRowCount(regions.size());
@@ -178,7 +186,7 @@ public class RegionNavigatorDialog extends JDialog implements Observer{
         synchRegions();
 
         ReferenceFrame defFrame = FrameManager.getDefaultFrame();
-        defFrame.getEventBus().register(this);
+        IGVEventBus.getInstance().subscribe(ViewChange.class, this);
         IGV.getInstance().getSession().getRegionsOfInterestObservable().addObserver(this);
 
         //resize window if small number of regions.  By default, tables are initialized with 20
@@ -472,10 +480,12 @@ public class RegionNavigatorDialog extends JDialog implements Observer{
             public void windowActivated(WindowEvent e) {
                 thisWindowActivated(e);
             }
+
             @Override
             public void windowClosed(WindowEvent e) {
                 thisWindowClosed(e);
             }
+
             @Override
             public void windowDeactivated(WindowEvent e) {
                 thisWindowDeactivated(e);
@@ -523,23 +533,25 @@ public class RegionNavigatorDialog extends JDialog implements Observer{
 
                     //---- regionTable ----
                     regionTable.setModel(new DefaultTableModel(
-                        new Object[][] {
-                            {null, null, null, null},
-                        },
-                        new String[] {
-                            "Chr", "Start", "End", "Description"
-                        }
+                            new Object[][]{
+                                    {null, null, null, null},
+                            },
+                            new String[]{
+                                    "Chr", "Start", "End", "Description"
+                            }
                     ) {
-                        Class<?>[] columnTypes = new Class<?>[] {
-                            String.class, Integer.class, Integer.class, Object.class
+                        Class<?>[] columnTypes = new Class<?>[]{
+                                String.class, Integer.class, Integer.class, Object.class
                         };
-                        boolean[] columnEditable = new boolean[] {
-                            false, true, true, true
+                        boolean[] columnEditable = new boolean[]{
+                                false, true, true, true
                         };
+
                         @Override
                         public Class<?> getColumnClass(int columnIndex) {
                             return columnTypes[columnIndex];
                         }
+
                         @Override
                         public boolean isCellEditable(int rowIndex, int columnIndex) {
                             return columnEditable[columnIndex];
@@ -746,15 +758,15 @@ public class RegionNavigatorDialog extends JDialog implements Observer{
                     int start = roi.getCenter() - length / 2;
                     int end = start + length;
                     //Shift so we don't go below 0
-                    if(start < 0){
+                    if (start < 0) {
                         end += Math.abs(start);
                         start = 0;
                     }
                     loci.add(new RegionOfInterest(roi.getChr(), start, end, roi.getDescription()).getLocusString());
                 }
                 GeneList geneList = new GeneList("Regions of Interest", loci, false);
-                IGV.getInstance().getSession().setCurrentGeneList(geneList);
-                IGV.getInstance().resetFrames();
+                IGV.getInstance().setGeneList(geneList);
+             //   IGV.getInstance().resetFrames();
 
             }
             updateButtonsEnabled();

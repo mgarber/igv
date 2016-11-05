@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 /*
@@ -61,6 +75,7 @@ public class TDFDataSource implements CoverageDataSource {
         this.trackName = trackName;
         this.reader = reader;
         this.availableFunctions = reader.getWindowFunctions();
+        this.availableFunctions.add(WindowFunction.none);   // Always available => raw data
 
         TDFGroup rootGroup = reader.getGroup("/");
         try {
@@ -70,7 +85,7 @@ public class TDFDataSource implements CoverageDataSource {
         }
         try {
             String dataGenome = rootGroup.getAttribute("genome");
-            // TODO -- throw exception if data genome != current genome 
+            // TODO -- throw exception if data genome != current genome
         } catch (Exception e) {
             log.error("Unknown genome " + rootGroup.getAttribute("genome"));
             throw new RuntimeException("Unknown genome " + rootGroup.getAttribute("genome"));
@@ -104,7 +119,7 @@ public class TDFDataSource implements CoverageDataSource {
         if (genome != null) {
             Set<String> chrNames = reader.getChromosomeNames();
             for (String chr : chrNames) {
-                String igvChr = genome.getChromosomeAlias(chr);
+                String igvChr = genome.getCanonicalChrName(chr);
                 if (igvChr != null && !igvChr.equals(chr)) {
                     chrNameMap.put(igvChr, chr);
                 }
@@ -169,16 +184,16 @@ public class TDFDataSource implements CoverageDataSource {
 
         List<LocusScore> scores;
 
-        if (zoom <= this.maxPrecomputedZoom) {
+        if (zoom <= this.maxPrecomputedZoom && windowFunction != WindowFunction.none) {
             // Window function == none => no windowing, so its not clear what to do.  For now use mean
-            WindowFunction wf = (windowFunction == WindowFunction.none ? WindowFunction.mean : windowFunction);
+           // WindowFunction wf = (windowFunction == WindowFunction.none ? WindowFunction.mean : windowFunction);
 
             List<TDFTile> tiles = null;
             if (querySeq.equals(Globals.CHR_ALL) && !isChrOrderValid()) {
-                TDFTile wgTile = reader.getWholeGenomeTile(genome, wf);
+                TDFTile wgTile = reader.getWholeGenomeTile(genome, windowFunction);
                 tiles = Arrays.asList(wgTile);
             } else {
-                TDFDataset ds = reader.getDataset(querySeq, zoom, wf);
+                TDFDataset ds = reader.getDataset(querySeq, zoom, windowFunction);
                 if (ds != null) {
                     tiles = ds.getTiles(startLocation, endLocation);
                 }
@@ -202,10 +217,22 @@ public class TDFDataSource implements CoverageDataSource {
 
         } else {
 
-            int chrLength = getChrLength(querySeq);
-            if (chrLength == 0) {
-                return Collections.emptyList();
+            if(querySeq.equals(genome.getHomeChromosome())) {
+                scores = getWGRawScores();
             }
+            else {
+                scores = getLocusScoresForChr(querySeq, startLocation, endLocation, zoom);
+            }
+        }
+        return scores;
+    }
+
+    private List<LocusScore> getLocusScoresForChr(String chr, int startLocation, int endLocation, int zoom) {
+        List<LocusScore> scores;
+        int chrLength = getChrLength(chr);
+        if (chrLength == 0) {
+            scores = Collections.emptyList();
+        } else {
             endLocation = Math.min(endLocation, chrLength);
             // By definition there are 2^z tiles per chromosome, and 700 bins per tile, where z is the zoom level.
             // By definition there are 2^z tiles per chromosome, and 700 bins per tile, where z is the zoom level.
@@ -213,8 +240,7 @@ public class TDFDataSource implements CoverageDataSource {
             //int z = Math.min(zReq, maxZoom);
             int nTiles = (int) Math.pow(2, zoom);
             double binSize = Math.max(1, (((double) chrLength) / nTiles) / 700);
-
-            scores = computeSummaryScores(querySeq, startLocation, endLocation, binSize);
+            scores = computeSummaryScores(chr, startLocation, endLocation, binSize);
         }
         return scores;
     }
@@ -227,6 +253,40 @@ public class TDFDataSource implements CoverageDataSource {
             Chromosome c = genome.getChromosome(chr);
             return c == null ? 0 : c.getLength();
         }
+    }
+
+    private List <LocusScore> getWGRawScores() {
+
+        List<LocusScore> scores = new ArrayList(10000);
+
+        for(String chr : genome.getAllChromosomeNames()) {
+            Chromosome c = genome.getChromosome(chr);
+
+            String dsName = "/" + chr + "/raw";
+            TDFDataset rawDataset = reader.getDataset(dsName);
+            if (rawDataset != null) {
+                List<TDFTile> rawTiles = rawDataset.getTiles(0, c.getLength());
+                if (rawTiles.size() > 0) {
+                    for (TDFTile rawTile : rawTiles) {
+                        // Tile of raw data
+                        if (rawTile != null && rawTile.getSize() > 0) {
+
+                            for (int i = 0; i < rawTile.getSize(); i++) {
+                                int s = genome.getGenomeCoordinate(chr, rawTile.getStartPosition(i));
+                                int e = genome.getGenomeCoordinate(chr, Math.max(s, rawTile.getEndPosition(i) - 1));
+                                float v = rawTile.getValue(trackNumber, i);
+                                if (!Float.isNaN(v)) {
+                                    v *= normalizationFactor;
+                                }
+                                scores.add(new BasicScore(s, e, v));
+                            }
+                        }
+                    }
+
+                }
+            }
+        }
+        return scores;
     }
 
     private List<LocusScore> computeSummaryScores(String chr, int startLocation, int endLocation, double scale) {
@@ -354,21 +414,24 @@ public class TDFDataSource implements CoverageDataSource {
     public List<LocusScore> getSummaryScoresForRange(String chr, int startLocation, int endLocation, int zoom) {
 
         Chromosome chromosome = genome.getChromosome(chr);
+        if(chromosome != null) {
+            endLocation = Math.min(chromosome.getLength(), endLocation);
+        }
 
         String tmp = chrNameMap.get(chr);
         String querySeq = tmp == null ? chr : tmp;
 
         // If we are in gene list view bypass caching.
-        if (Globals.isHeadless() || FrameManager.isGeneListMode() || FrameManager.isExomeMode()) {
+        if (Globals.isHeadless() || FrameManager.isGeneListMode()) {
             return getSummaryScores(querySeq, startLocation, endLocation, zoom);
         } else {
 
             ArrayList scores = new ArrayList();
 
             // TODO -- this whole section could be computed once and stored,  it is only a function of the genome, chr, and zoom level.
-            double tileWidth = 0;
+            int tileWidth = 0;
             if (chr.equals(Globals.CHR_ALL)) {
-                tileWidth = (genome.getNominalLength() / 1000.0);
+                tileWidth = (int) Math.ceil(genome.getNominalLength() / 1000.0);
             } else {
                 if (chromosome != null) {
                     tileWidth = chromosome.getLength() / ((int) Math.pow(2.0, zoom));
@@ -379,8 +442,8 @@ public class TDFDataSource implements CoverageDataSource {
             }
 
 
-            int startTile = (int) (startLocation / tileWidth);
-            int endTile = (int) (endLocation / tileWidth);
+            int startTile = (startLocation / tileWidth);
+            int endTile = ((endLocation - 1) / tileWidth);
             for (int t = startTile; t <= endTile; t++) {
                 List<LocusScore> cachedScores = getCachedSummaryScores(querySeq, zoom, t, tileWidth);
                 if (cachedScores != null) {

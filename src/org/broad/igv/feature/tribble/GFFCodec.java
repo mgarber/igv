@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.feature.tribble;
@@ -57,14 +71,6 @@ public class GFFCodec extends AsciiFeatureCodec<Feature> {
 
     static HashSet<String> ignoredTypes = new HashSet();
 
-    static {
-        ignoredTypes.add("start_codon");
-        ignoredTypes.add("stop_codon");
-        ignoredTypes.add("Contig");
-        ignoredTypes.add("RealContig");
-        ignoredTypes.add("CDS_parts");
-    }
-
 
     private TrackProperties trackProperties = null;
     private CI.CIHashSet featuresToHide = new CI.CIHashSet();
@@ -76,17 +82,6 @@ public class GFFCodec extends AsciiFeatureCodec<Feature> {
     public enum Version {
         GFF2, GFF3
     }
-
-
-    /**
-     * List of known "Name" fields.  Some important fields from the GFF3 spec are listed below.  Note GFF3
-     * is case sensitive, however GFF2, GTF, and other variants might not be.
-     * <p/>
-     * ID	  Indicates the ID of the feature.
-     * Name   Display name for the feature.
-     * Alias  A secondary name for the feature.
-     */
-    static String[] nameFields = {"Name", "name", "Alias", "gene", "primary_name", "locus", "alias", "systematic_id", "ID", "transcript_id"};
 
 
     public GFFCodec(Genome genome) {
@@ -114,8 +109,11 @@ public class GFFCodec extends AsciiFeatureCodec<Feature> {
             trackProperties = new TrackProperties();
             ParsingUtils.parseTrackLine(line, trackProperties);
             header.setTrackProperties(trackProperties);
-        } else if (line.startsWith("##gff-version") && line.endsWith("3")) {
-            helper = new GFF3Helper();
+        } else if (line.startsWith("##gff-version") && line.contains("3")) {
+            String[] tokens = Globals.whitespacePattern.split(line);
+            if (tokens.length > 1 && tokens[1].startsWith("3")) {
+                helper = new GFF3Helper();
+            }
         } else if (line.startsWith("#nodecode") || line.startsWith("##nodecode")) {
             helper.setUrlDecoding(false);
         } else if (line.startsWith("#hide") || line.startsWith("##hide")) {
@@ -180,10 +178,6 @@ public class GFFCodec extends AsciiFeatureCodec<Feature> {
                 pathLowerCase.endsWith(".gvf") || pathLowerCase.endsWith(".gtf");
     }
 
-    public BasicFeature decodeLoc(String line) {
-        return decode(line);
-    }
-
     public BasicFeature decode(String line) {
 
         if (fastaSection) {
@@ -212,7 +206,7 @@ public class GFFCodec extends AsciiFeatureCodec<Feature> {
             return null;
         }
 
-        String chromosome = genome == null ? StringUtils.intern(chrToken) : genome.getChromosomeAlias(chrToken);
+        String chromosome = genome == null ? StringUtils.intern(chrToken) : genome.getCanonicalChrName(chrToken);
 
         // GFF coordinates are 1-based inclusive (length = end - start + 1)
         // IGV (UCSC) coordinates are 0-based exclusive.  Adjust start and end accordingly
@@ -311,7 +305,7 @@ public class GFFCodec extends AsciiFeatureCodec<Feature> {
     }
 
 
-    protected interface Helper {
+    public interface Helper {
 
         String[] getParentIds(MultiMap<String, String> attributes, String attributeString);
 
@@ -403,6 +397,13 @@ public class GFFCodec extends AsciiFeatureCodec<Feature> {
             if (id != null && id.length() > 0) {
                 return id;
             }
+
+            // Try <type>_id convention
+            id = attributes.get(type + "_id");
+            if (id != null && id.length() > 0) {
+                return id;
+            }
+
 
             for (String nf : idFields) {
                 if (attributes.containsKey(nf)) {

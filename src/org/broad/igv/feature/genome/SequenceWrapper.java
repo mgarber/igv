@@ -1,13 +1,28 @@
 /*
- * Copyright (c) 2007-2013 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
+
 /*
  * To change this template, choose Tools | Templates
  * and open the template in the editor.
@@ -15,6 +30,7 @@
 package org.broad.igv.feature.genome;
 
 import org.apache.log4j.Logger;
+import org.broad.igv.feature.Range;
 import org.broad.igv.util.ObjectCache;
 
 import java.util.Hashtable;
@@ -47,7 +63,9 @@ public class SequenceWrapper implements Sequence {
             SequenceTile tile = getSequenceTile(chr, tileNo);
             int offset = position - tile.getStart();
             byte[] bytes = tile.bytes;
-            if (offset > 0 && offset < bytes.length) {
+            if (bytes == null) {
+                return 0;
+            } else if (offset > 0 && offset < bytes.length) {
                 return bytes[offset];
             } else {
                 return 0;
@@ -78,15 +96,19 @@ public class SequenceWrapper implements Sequence {
      * @return
      */
     public byte[] getSequence(String chr, int start, int end) {
+
         if (cacheSequences) {
             byte[] seqbytes = new byte[end - start];
+
             int startTile = start / tileSize;
             int endTile = end / tileSize;
 
+            SequenceTile[] tiles = getSequenceTiles(chr, startTile, endTile);
+
             // Get first chunk
-            SequenceTile tile = getSequenceTile(chr, startTile);
+            SequenceTile tile = tiles[0];
             if (tile == null) {
-                return null;
+                return null;   // Can this ever happen?
             }
 
             byte[] tileBytes = tile.getBytes();
@@ -113,11 +135,7 @@ public class SequenceWrapper implements Sequence {
 
             // If multiple chunks ...
             for (int t = startTile + 1; t <= endTile; t++) {
-                tile = getSequenceTile(chr, t);
-                if (tile == null) {
-                    break;
-                }
-
+                tile = tiles[t - startTile];
                 int nNext = Math.min(seqbytes.length - nBytes, tile.getSize());
 
                 System.arraycopy(tile.getBytes(), 0, seqbytes, nBytes, nNext);
@@ -151,11 +169,80 @@ public class SequenceWrapper implements Sequence {
         return tile;
     }
 
+
+    private SequenceTile[] getSequenceTiles(String chr, int startTile, int endTile) {
+
+        SequenceTile[] tiles = new SequenceTile[endTile - startTile + 1];
+
+        TileRange toLoad = null;
+        for (int tileNo = startTile; tileNo <= endTile; tileNo++) {
+
+            String key = getKey(chr, tileNo);
+            SequenceTile tile = sequenceCache.get(key);
+
+            if (tile == null) {
+
+                if(toLoad == null) {
+                    toLoad = new TileRange(tileNo, tileNo);
+                }
+                else {
+                    toLoad.endTile = tileNo;
+                }
+
+            } else {  // tile != null
+                tiles[tileNo-startTile] = tile;
+
+                if (toLoad != null) {
+                    loadTiles(chr, startTile, tiles, toLoad);
+                    toLoad = null;
+                }
+            }
+        }
+
+        if (toLoad != null) {
+            loadTiles(chr, startTile, tiles, toLoad);
+        }
+
+        return tiles;
+
+    }
+
+    private void loadTiles(String chr, int startTile, SequenceTile[] tiles, TileRange toLoad) {
+        int start = toLoad.startTile * tileSize;
+        int end = (toLoad.endTile + 1) * tileSize;
+        byte[] seq = sequence.getSequence(chr, start, end);
+
+        int offset = 0;
+        for(int t = toLoad.startTile; t <= toLoad.endTile; t++) {
+
+            int nBytes = Math.min(tileSize, seq.length - offset);
+            byte [] tileSeq = new byte[nBytes];
+            int tileStart = t * tileSize;
+            System.arraycopy(seq, offset, tileSeq, 0, nBytes);
+            SequenceTile t2 = new SequenceTile(tileStart, tileSeq);
+            String k = getKey(chr, t);
+            sequenceCache.put(k, t2);
+            tiles[t-startTile] = t2;
+            offset += tileSize;
+        }
+    }
+
+    private static class TileRange {
+        int startTile;
+        int endTile;
+
+        public TileRange(int startTile, int endTile) {
+            this.startTile = startTile;
+            this.endTile = startTile;
+        }
+    }
+
     /**
      * Generate unique key to be used to store/retrieve
      * tiles. We combined the chr and tileNo, with a
      * delimiter in between to ensure that
      * chr1 12 doesn't clash with chr11 2
+     *
      * @param chr
      * @param tileNo
      * @return
@@ -212,16 +299,16 @@ public class SequenceWrapper implements Sequence {
     /**
      * Translates sequence URLs that might be cached on client machines.  This method should be retired eventually,
      * as caches expire.
-     * <p/>
+     * <p>
      * Also modifies URLs to Broad hosted sequences that will use byte range requests if byte-range requests are
      * disabled.  This hack is neccessary for the Partners network, which does not forward the byte-range header.
-     * <p/>
+     * <p>
      * Older "sequence servlet" request URLs
      * http://www.broad.mit.edu/igv/SequenceServlet/
      * http://www.broadinstitute.org/igv/sequence
-     * <p/>
+     * <p>
      * Direct URLS  (uses byte range requests)
-     * http://www.broadinstitute.org/igvdata/annotations/seq/
+     * https://data.broadinstitute.org/igvdata/annotations/seq/
      * http://igvdata.broadinstitute.org/genomes/seq
      *
      * @param url
@@ -235,7 +322,7 @@ public class SequenceWrapper implements Sequence {
      * Some rather ugly code to maintain backward compatibility.  Does 2 things
      * (1) domain swap  (mit -> broadinstitute)
      * (2) removes references to SequenceServlet, there are 2 forms
-     * <p/>
+     * <p>
      * This method can be removed when its verified that references to the MIT domain and sequence servlet have
      * been removed from all genomes.
      *

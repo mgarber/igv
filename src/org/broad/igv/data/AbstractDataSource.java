@@ -1,13 +1,28 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
+
 package org.broad.igv.data;
 
 //~--- non-JDK imports --------------------------------------------------------
@@ -33,7 +48,7 @@ public abstract class AbstractDataSource implements DataSource {
 
     // DataManager dataManager;
     boolean cacheSummaryTiles = true;
-    WindowFunction windowFunction = WindowFunction.mean;
+    protected WindowFunction windowFunction = WindowFunction.mean;
     LRUCache<String, SummaryTile> summaryTileCache = new LRUCache(10);
     protected Genome genome;
 
@@ -111,9 +126,13 @@ public abstract class AbstractDataSource implements DataSource {
     public List<LocusScore> getSummaryScoresForRange(String chr, int startLocation, int endLocation, int zoom) {
 
 
-        List<LocusScore> scores = getPrecomputedSummaryScores(chr, startLocation, endLocation, zoom);
-        if (scores != null) {
-            return scores;
+        List<LocusScore> scores = null;
+
+        if(windowFunction != WindowFunction.none) {
+            scores = getPrecomputedSummaryScores(chr, startLocation, endLocation, zoom);
+            if (scores != null) {
+                return scores;
+            }
         }
 
         List<SummaryTile> tiles = getSummaryTilesForRange(chr, startLocation, endLocation, zoom);
@@ -142,7 +161,7 @@ public abstract class AbstractDataSource implements DataSource {
         int adjustedEnd = Math.min(chrLength, endLocation);
 
 
-        if (cacheSummaryTiles && !FrameManager.isGeneListMode() && !FrameManager.isExomeMode()) {
+        if (cacheSummaryTiles && !FrameManager.isGeneListMode()) {
 
             // By definition there are 2^z tiles per chromosome, and 700 bins per tile, where z is the zoom level.
             //int maxZoom = (int) (Math.log(chrLength/700) / Globals.log2) + 1;
@@ -200,12 +219,7 @@ public abstract class AbstractDataSource implements DataSource {
 
     SummaryTile computeSummaryTile(String chr, int startLocation, int endLocation, int nBins) {
 
-
-        // TODO -- we should use an index here
-        int longestGene = getLongestFeature(chr);
-
-        int adjustedStart = Math.max(startLocation - longestGene, 0);
-        DataTile rawTile = getRawData(chr, adjustedStart, endLocation);
+        DataTile rawTile = getRawData(chr, startLocation, endLocation);
         SummaryTile tile = new SummaryTile();
 
         if (rawTile != null && !rawTile.isEmpty() && nBins > 0) {

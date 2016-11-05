@@ -1,13 +1,28 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
+
 package org.broad.igv.data.expression;
 
 
@@ -19,9 +34,7 @@ import org.broad.igv.ui.util.MessageUtils;
 import org.broad.igv.util.HttpUtils;
 import htsjdk.tribble.readers.AsciiLineReader;
 
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.net.URL;
 import java.util.HashMap;
 import java.util.Hashtable;
@@ -41,7 +54,7 @@ public class ProbeToLocusMap {
 
     enum Platform {Affymetrix, Agilient, Illumina, Methylation, Mirna, unknown}
 
-    public static final String SERVER_URL = "http://www.broadinstitute.org";
+    public static final String SERVER_URL = "https://data.broadinstitute.org";
 
     private static Logger log = Logger.getLogger(ProbeToLocusMap.class);
     private static String affyGenesMappingURL =
@@ -94,7 +107,7 @@ public class ProbeToLocusMap {
 
 
     public void loadMapping(String urlString, Map<String, String[]> map) {
-        AsciiLineReader bufReader = null;
+        BufferedReader bufReader = null;
         InputStream is = null;
         try {
             if (HttpUtils.isRemoteURL(urlString)) {
@@ -106,7 +119,7 @@ public class ProbeToLocusMap {
             if (urlString.endsWith("gz")) {
                 is = new GZIPInputStream(is);
             }
-            bufReader = new AsciiLineReader(is);
+            bufReader = new BufferedReader(new InputStreamReader(is));
             loadMapping(bufReader, map);
 
         } catch (Exception e) {
@@ -124,7 +137,7 @@ public class ProbeToLocusMap {
         }
     }
 
-    public void loadMapping(AsciiLineReader bufReader, Map<String, String[]> map) throws IOException {
+    public void loadMapping(BufferedReader bufReader, Map<String, String[]> map) throws IOException {
         String line;
         while ((line = bufReader.readLine()) != null) {
             String[] result = Globals.tabPattern.split(line, -1);

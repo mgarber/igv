@@ -1,19 +1,34 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not
- * responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL), Version 2.1 which is
- * available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.feature.genome;
 
 import org.apache.log4j.Logger;
+import org.broad.igv.Globals;
 import org.broad.igv.exceptions.DataLoadException;
+import org.broad.igv.ui.util.MessageUtils;
 import org.broad.igv.util.ParsingUtils;
 import htsjdk.tribble.readers.AsciiLineReader;
 
@@ -39,9 +54,8 @@ public class FastaUtils {
      * @param inputPath
      * @param outputPath
      * @return
-     * @throws org.broad.igv.exceptions.DataLoadException
-     *          If the fasta file cannot be indexed, for instance
-     *          because the lines are of an uneven length
+     * @throws org.broad.igv.exceptions.DataLoadException If the fasta file cannot be indexed, for instance
+     *                                                    because the lines are of an uneven length
      */
     public static void createIndexFile(String inputPath, String outputPath) throws DataLoadException, IOException {
 
@@ -93,9 +107,9 @@ public class FastaUtils {
                     //Header line
                     curContig = WHITE_SPACE.split(line)[0];
                     curContig = curContig.substring(1);
-                    if(allContigs.contains(curContig)){
+                    if (allContigs.contains(curContig)) {
                         throw new DataLoadException("Contig '" + curContig + "' found multiple times in file.", inputPath);
-                    }else{
+                    } else {
                         allContigs.add(curContig);
                     }
 
@@ -134,6 +148,9 @@ public class FastaUtils {
                 }
                 lastPosition = reader.getPosition();
             }
+        } catch (Exception e) {
+            MessageUtils.showErrorMessage("Could not create index file: " + outputPath, e);
+            if( Globals.isTesting()) throw e;
         } finally {
             if (reader != null) reader.close();
             if (writer != null) writer.close();

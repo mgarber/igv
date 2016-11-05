@@ -1,25 +1,38 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.ui.panel;
 
 import org.broad.igv.PreferenceManager;
 import org.broad.igv.feature.Locus;
-import org.broad.igv.feature.exome.ExomeReferenceFrame;
 import org.broad.igv.lists.GeneList;
-import org.broad.igv.track.FeatureTrack;
 import org.broad.igv.track.RegionScoreType;
 import org.broad.igv.track.Track;
 import org.broad.igv.ui.IGV;
 import org.broad.igv.ui.action.SearchCommand;
+import org.broad.igv.ui.event.IGVEventBus;
 import org.broad.igv.ui.util.MessageUtils;
 
 import java.awt.*;
@@ -36,7 +49,6 @@ public class FrameManager {
 
     private static List<ReferenceFrame> frames = new ArrayList();
     private static ReferenceFrame defaultFrame;
-    private static boolean exomeMode = false;
 
     public static final String DEFAULT_FRAME_NAME = "genome";
 
@@ -50,72 +62,6 @@ public class FrameManager {
         }
         return defaultFrame;
     }
-
-    /**
-     * Set exome mode.
-     *
-     * @param b
-     * @param showTrackMenu
-     * @return true if a change was made,
-     *         false if not.
-     */
-    public static boolean setExomeMode(boolean b, boolean showTrackMenu) {
-        if (b == exomeMode) return false;  // No change
-        if (b) {
-            return switchToExomeMode(showTrackMenu);
-        } else {
-            return switchToGenomeMode();
-        }
-    }
-
-
-    public static boolean isExomeMode() {
-        return exomeMode;
-    }
-
-
-    static FeatureTrack exomeTrack = null;
-
-    private static boolean switchToExomeMode(boolean showTrackMenu) {
-
-        Frame parent = IGV.hasInstance() ? IGV.getMainFrame() : null;
-        List<FeatureTrack> featureTracks = IGV.getInstance().getFeatureTracks();
-        if (featureTracks.size() == 1) {
-            exomeTrack = featureTracks.get(0);
-        } else {
-            if (exomeTrack == null || showTrackMenu) {
-                FeatureTrackSelectionDialog dlg = new FeatureTrackSelectionDialog(parent);
-                dlg.setVisible(true);
-                if (dlg.getIsCancelled()) return false;
-                exomeTrack = dlg.getSelectedTrack();
-            }
-        }
-
-        if (exomeTrack == null) return false;
-
-        ExomeReferenceFrame exomeFrame = new ExomeReferenceFrame(defaultFrame, exomeTrack);
-
-        Locus locus = new Locus(defaultFrame.getChrName(), (int) defaultFrame.getOrigin(), (int) defaultFrame.getEnd());
-        exomeFrame.jumpTo(locus);
-        defaultFrame = exomeFrame;
-        frames.clear();
-        frames.add(defaultFrame);
-        exomeMode = true;
-        return true;
-    }
-
-    private static boolean switchToGenomeMode() {
-        ReferenceFrame refFrame = new ReferenceFrame(defaultFrame);
-
-        Locus locus = new Locus(defaultFrame.getChrName(), (int) defaultFrame.getOrigin(), (int) defaultFrame.getEnd());
-        refFrame.jumpTo(locus);
-        defaultFrame = refFrame;
-        frames.clear();
-        frames.add(defaultFrame);
-        exomeMode = false;
-        return true;
-    }
-
 
     public static List<ReferenceFrame> getFrames() {
         return frames;
@@ -132,12 +78,25 @@ public class FrameManager {
 
     public static void setFrames(List<ReferenceFrame> f) {
         frames = f;
+        IGVEventBus.getInstance().post(new ChangeEvent(frames));
     }
 
     public static boolean isGeneListMode() {
         return frames.size() > 1;
     }
 
+    public static int getStateHash() {
+        if(isGeneListMode()) {
+            String hs = "";
+            for(ReferenceFrame frame : frames) {
+                hs = hs + frame.getStateHash();
+            }
+            return hs.hashCode();
+        }
+        else {
+            return defaultFrame.getStateHash();
+        }
+    }
 
     public static void setToDefaultFrame(String searchString) {
         frames.clear();
@@ -149,6 +108,8 @@ public class FrameManager {
         }
         frames.add(getDefaultFrame());
         getDefaultFrame().recordHistory();
+
+        IGVEventBus.getInstance().post(new ChangeEvent(frames));
     }
 
     private static boolean addNewFrame(String searchString){
@@ -162,9 +123,7 @@ public class FrameManager {
         return locusAdded;
     }
 
-
     public static void resetFrames(GeneList gl) {
-
         frames.clear();
 
         if (gl == null) {
@@ -179,6 +138,7 @@ public class FrameManager {
                 } else {
                     IGV.getInstance().getSession().setCurrentGeneList(null);
                     getDefaultFrame().jumpTo(locus.getChr(), locus.getStart(), locus.getEnd());
+                    frames.add(getDefaultFrame());
                 }
             } else {
                 for (String searchString : gl.getLoci()) {
@@ -198,6 +158,8 @@ public class FrameManager {
 
             }
         }
+
+        IGVEventBus.getInstance().post(new ChangeEvent(frames));
     }
 
     /**
@@ -272,7 +234,6 @@ public class FrameManager {
         frames.remove(frame);
     }
 
-
     public static void sortFrames(final Track t) {
 
         Collections.sort(frames, new Comparator<ReferenceFrame>() {
@@ -280,12 +241,41 @@ public class FrameManager {
             public int compare(ReferenceFrame o1, ReferenceFrame o2) {
                 float s1 = t.getRegionScore(o1.getChromosome().getName(), (int) o1.getOrigin(), (int) o1.getEnd(),
                         o1.getZoom(), RegionScoreType.SCORE, o1.getName());
-                float s2  = t.getRegionScore(o2.getChromosome().getName(), (int) o2.getOrigin(), (int) o2.getEnd(),
+                float s2 = t.getRegionScore(o2.getChromosome().getName(), (int) o2.getOrigin(), (int) o2.getEnd(),
                         o2.getZoom(), RegionScoreType.SCORE, o2.getName());
                 return (s1 == s2 ? 0 : (s1 > s2) ? -1 : 1);
             }
         });
 
+    }
+
+    /**
+     * Increment the zoom level of the visibile frame(s). Supports batch commands zoomIn and zoomOut
+     *
+     * @param zoom the zoom level increment, usually -1 or 1
+     */
+    public static void incrementZoom(int zoom) {
+
+        if(isGeneListMode()) {
+            for(ReferenceFrame frame : getFrames()) {
+                frame.doZoomIncrement(zoom);
+            }
+        }
+        else {
+            getDefaultFrame().doZoomIncrement(zoom);
+        }
+    }
+
+
+    public static class ChangeEvent {
+        List<ReferenceFrame> frames;
+        public ChangeEvent(List<ReferenceFrame> frames) {
+            this.frames = frames;
+        }
+
+        public List<ReferenceFrame> getFrames() {
+            return frames;
+        }
     }
 
 }

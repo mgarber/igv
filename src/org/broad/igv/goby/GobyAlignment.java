@@ -1,21 +1,28 @@
 /*
- * Copyright (c) 2007-2011 by Institute for Computational Biomedicine,
- *                                          Weill Medical College of Cornell University.  
+ * The MIT License (MIT)
+ *  Copyright (c) 2007-2015 by Institute for Computational Biomedicine,
+ *                                          Weill Medical College of Cornell University.
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
  *
- * THE SOFTWARE IS PROVIDED "AS IS." THE BROAD AND MIT MAKE NO REPRESENTATIONS OR
- * WARRANTES OF ANY KIND CONCERNING THE SOFTWARE, EXPRESS OR IMPLIED, INCLUDING,
- * WITHOUT LIMITATION, WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
- * PURPOSE, NONINFRINGEMENT, OR THE ABSENCE OF LATENT OR OTHER DEFECTS, WHETHER
- * OR NOT DISCOVERABLE.  IN NO EVENT SHALL THE BROAD OR MIT, OR THEIR RESPECTIVE
- * TRUSTEES, DIRECTORS, OFFICERS, EMPLOYEES, AND AFFILIATES BE LIABLE FOR ANY DAMAGES
- * OF ANY KIND, INCLUDING, WITHOUT LIMITATION, INCIDENTAL OR CONSEQUENTIAL DAMAGES,
- * ECONOMIC DAMAGES OR INJURY TO PROPERTY AND LOST PROFITS, REGARDLESS OF WHETHER
- * THE BROAD OR MIT SHALL BE ADVISED, SHALL HAVE OTHER REASON TO KNOW, OR IN FACT
- * SHALL KNOW OF THE POSSIBILITY OF THE FOREGOING.
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
+
 
 package org.broad.igv.goby;
 
@@ -35,8 +42,8 @@ import org.broad.igv.sam.*;
 import org.broad.igv.track.WindowFunction;
 
 import java.awt.*;
-import java.util.Arrays;
-import java.util.Comparator;
+import java.util.*;
+import java.util.List;
 
 /**
  * A Facade to a <a href="http://goby.campagnelab.org">Goby</a> alignment entry. The facade exposes
@@ -58,9 +65,10 @@ public class GobyAlignment implements Alignment {
 
     protected final Alignments.AlignmentEntry entry;
     private final GobyAlignmentIterator iterator;
-    protected AlignmentBlock[] block = new AlignmentBlock[1];
-    protected AlignmentBlock[] insertionBlock;
+    protected AlignmentBlockImpl[] block = new AlignmentBlockImpl[1];
+    protected AlignmentBlockImpl[] insertionBlock;
     private CharArrayList gapTypes = null;
+    private List<Gap> gaps = null;
     private static final ReadMate unmappedMate = new ReadMate("*", -1, false, true);
     private Comparator<? super AlignmentBlock> blockComparator = new Comparator<AlignmentBlock>() {
         public int compare(AlignmentBlock alignmentBlock, AlignmentBlock alignmentBlock1) {
@@ -197,9 +205,9 @@ public class GobyAlignment implements Alignment {
                     entry.getSoftClippedQualityRight().toByteArray(),
                     entry.getQueryAlignedLength() + entry.getSoftClippedBasesLeft().length());
         }
-        block = blocks.toArray(new AlignmentBlock[blocks.size()]);
+        block = blocks.toArray(new AlignmentBlockImpl[blocks.size()]);
         Arrays.sort(block, blockComparator);
-        insertionBlock = insertionBlocks.toArray(new AlignmentBlock[insertionBlocks.size()]);
+        insertionBlock = insertionBlocks.toArray(new AlignmentBlockImpl[insertionBlocks.size()]);
         Arrays.sort(insertionBlock, blockComparator);
         ObjectArrayList<GobyAlignment> list = null;
 
@@ -213,12 +221,12 @@ public class GobyAlignment implements Alignment {
                 ObjectArrayList<AlignmentBlock> splicedBlocks = new ObjectArrayList<AlignmentBlock>();
                 splicedBlocks.addAll(ObjectArrayList.wrap(spliceHeadAlignment.block));
                 splicedBlocks.addAll(blocks);
-                spliceHeadAlignment.block = splicedBlocks.toArray(new AlignmentBlock[splicedBlocks.size()]);
+                spliceHeadAlignment.block = splicedBlocks.toArray(new AlignmentBlockImpl[splicedBlocks.size()]);
 
                 ObjectArrayList<AlignmentBlock> splicedInsertionBlocks = new ObjectArrayList<AlignmentBlock>();
                 splicedInsertionBlocks.addAll(ObjectArrayList.wrap(spliceHeadAlignment.insertionBlock));
                 splicedInsertionBlocks.addAll(insertionBlocks);
-                spliceHeadAlignment.insertionBlock = splicedInsertionBlocks.toArray(new AlignmentBlock[splicedInsertionBlocks.size()]);
+                spliceHeadAlignment.insertionBlock = splicedInsertionBlocks.toArray(new AlignmentBlockImpl[splicedInsertionBlocks.size()]);
 
                 if (spliceHeadAlignment.gapTypes == null) {
                     spliceHeadAlignment.gapTypes = new CharArrayList(10);
@@ -228,7 +236,7 @@ public class GobyAlignment implements Alignment {
                 // Since the previous alignment carries this information, we clear up block and insertionBlock
                 // in this alignment, but keep any softClips:
                 this.block = keepSoftClips(block);
-                this.insertionBlock = new AlignmentBlock[0];
+                this.insertionBlock = new AlignmentBlockImpl[0];
             }
         }
 
@@ -236,7 +244,7 @@ public class GobyAlignment implements Alignment {
 
     }
 
-    private AlignmentBlock[] removeNulls(AlignmentBlock[] block) {
+    private AlignmentBlockImpl[] removeNulls(AlignmentBlockImpl[] block) {
         int nullCount = 0;
         for (int i = 0; i < block.length; i++) {
             AlignmentBlock alignmentBlock = block[i];
@@ -249,7 +257,7 @@ public class GobyAlignment implements Alignment {
             return block;
         } else {
             int newLength = block.length - nullCount;
-            AlignmentBlock[] result = new AlignmentBlock[newLength];
+            AlignmentBlockImpl[] result = new AlignmentBlockImpl[newLength];
             int j = 0;
             for (int i = 0; i < result.length; i++) {
                 result[i] = block[j++];
@@ -258,15 +266,15 @@ public class GobyAlignment implements Alignment {
         }
     }
 
-    private AlignmentBlock[] keepSoftClips(AlignmentBlock[] blocks) {
+    private AlignmentBlockImpl[] keepSoftClips(AlignmentBlockImpl[] blocks) {
         int numSoftCLippedBlocks = 0;
         for (AlignmentBlock block : blocks) {
             if (block.isSoftClipped()) numSoftCLippedBlocks++;
         }
-        AlignmentBlock[] tmp = new AlignmentBlock[numSoftCLippedBlocks];
+        AlignmentBlockImpl[] tmp = new AlignmentBlockImpl[numSoftCLippedBlocks];
         int j = 0;
         for (int i = 0; i < numSoftCLippedBlocks; i++) {
-            AlignmentBlock block = blocks[j++];
+            AlignmentBlockImpl block = blocks[j++];
             if (block.isSoftClipped()) {
                 tmp[i] = block;
             }
@@ -285,9 +293,7 @@ public class GobyAlignment implements Alignment {
             bases[i] = (byte) softClippedBasesLeft.charAt(i);
             scores[i] = hasSoftClippedQuality ? softClippedQuality[i] : readQualScores[j++];
         }
-        final AlignmentBlock alignmentBlock = new AlignmentBlock(getChr(), position,
-                bases,
-                scores);
+        final AlignmentBlockImpl alignmentBlock = new AlignmentBlockImpl( position, bases, scores);
         alignmentBlock.setSoftClipped(true);
         blocks.add(alignmentBlock);
 
@@ -356,11 +362,11 @@ public class GobyAlignment implements Alignment {
                         leftScores = leftScores.subList(0, deletionPosition);
                         rightScores = rightScores.subList(deletionPosition, rightScores.size());
 
-                        AlignmentBlock left = new AlignmentBlock(getChr(), block.getStart(),
+                        AlignmentBlock left = new AlignmentBlockImpl(block.getStart(),
                                 leftBases.toByteArray(new byte[leftBases.size()]),
                                 leftScores.toByteArray(new byte[leftScores.size()]));
 
-                        AlignmentBlock right = new AlignmentBlock(getChr(), block.getStart() + leftBases.size()
+                        AlignmentBlock right = new AlignmentBlockImpl(block.getStart() + leftBases.size()
                                 + var.getFrom().length(),
                                 rightBases.toByteArray(new byte[rightBases.size()]),
                                 rightScores.toByteArray(new byte[rightScores.size()]));
@@ -387,7 +393,7 @@ public class GobyAlignment implements Alignment {
                          ByteArrayList scores) {
 
         blocks.add(
-                new AlignmentBlock(getChr(), start,
+                new AlignmentBlockImpl(start,
                         bases.toByteArray(new byte[bases.size()]),
                         scores.toByteArray(new byte[scores.size()])));
         start += bases.size();
@@ -455,13 +461,29 @@ public class GobyAlignment implements Alignment {
     }
 
 
-    public char[] getGapTypes() {
-        //LOG.info("getGapTypes");
-        if (gapTypes == null) {
-            return new char[0];
-        } else {
-            return gapTypes.toArray();
+    @Override
+    public List<Gap> getGaps() {
+        if(gaps == null && gapTypes != null && gapTypes.getSize() > 0 && block.length > 1) {
+            gaps = new ArrayList<Gap>(gapTypes.getSize());
+            char[] types = gapTypes.toArray();
+
+            AlignmentBlock leftBlock = block[0];
+            for(int i=1; i<block.length; i++ ) {
+                AlignmentBlock rightBlock = block[i];
+                int gapStart = leftBlock.getEnd();
+                int nBases = rightBlock.getStart() - gapStart;
+                char type = types.length <= i ? types[i-1] : 'N';
+                if(type == SAMAlignment.SKIPPED_REGION) {
+                    gaps.add(new SpliceGap(gapStart, nBases, type, leftBlock.getLength(), rightBlock.getLength()));
+                }
+                else {
+                    gaps.add(new Gap(gapStart, nBases, type));
+                }
+                leftBlock = rightBlock;
+            }
         }
+
+        return gaps;
     }
 
     public String getCigarString() {
@@ -723,14 +745,15 @@ public class GobyAlignment implements Alignment {
      * The default behavior is to just copy the tooltip text.
      *
      * @param location
+     * @param mouseX
      * @return
      */
-    public String getClipboardString(double location) {
-        return getValueString(location, null);
+    public String getClipboardString(double location, int mouseX) {
+        return getValueString(location, mouseX, null);
     }
 
 
-    public String getValueString(double position, WindowFunction windowFunction) {
+    public String getValueString(double position, int mouseX, WindowFunction windowFunction) {
         //  //LOG.info("getValueString");
         MutableString buffer = new MutableString();
 

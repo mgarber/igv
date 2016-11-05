@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.bigwig;
@@ -23,7 +37,6 @@ import org.broad.igv.feature.tribble.IGVBEDCodec;
 import org.broad.igv.track.FeatureSource;
 import org.broad.igv.track.TrackType;
 import org.broad.igv.track.WindowFunction;
-import org.broad.igv.ui.color.ColorUtilities;
 import org.broad.igv.util.collections.FloatArrayList;
 import org.broad.igv.util.collections.IntArrayList;
 import htsjdk.tribble.Feature;
@@ -43,8 +56,7 @@ public class BigWigDataSource extends AbstractDataSource implements FeatureSourc
 
 
     Collection<WindowFunction> availableWindowFunctions =
-            Arrays.asList(WindowFunction.min, WindowFunction.mean, WindowFunction.max);
-    WindowFunction windowFunction = WindowFunction.mean;
+            Arrays.asList(WindowFunction.min, WindowFunction.mean, WindowFunction.max, WindowFunction.none);
 
     BBFileReader reader;
     private BBZoomLevels levels;
@@ -52,7 +64,7 @@ public class BigWigDataSource extends AbstractDataSource implements FeatureSourc
     // Feature visibility window (for bigBed)
     private int featureVisiblityWindow = -1;
 
-    private List<LocusScore> wholeGenomeScores;
+    private Map<WindowFunction, List<LocusScore>> wholeGenomeScores;
 
     // Lookup table to support chromosome aliasing.
     private Map<String, String> chrNameMap = new HashMap();
@@ -68,9 +80,10 @@ public class BigWigDataSource extends AbstractDataSource implements FeatureSourc
         super(genome);
 
         this.reader = reader;
-        levels = reader.getZoomLevels();
+        this.levels = reader.getZoomLevels();
+        this.wholeGenomeScores = new HashMap<>();
 
-        if(reader.isBigWigFile()) initMinMax();
+        if (reader.isBigWigFile()) initMinMax();
 
         // Assume 1000 pixel screen, pick visibility level to be @ highest resolution zoom.
         // TODO -- something smarter, like scaling by actual density
@@ -82,7 +95,7 @@ public class BigWigDataSource extends AbstractDataSource implements FeatureSourc
         if (genome != null) {
             Collection<String> chrNames = reader.getChromosomeNames();
             for (String chr : chrNames) {
-                String igvChr = genome.getChromosomeAlias(chr);
+                String igvChr = genome.getCanonicalChrName(chr);
                 if (igvChr != null && !igvChr.equals(chr)) {
                     chrNameMap.put(igvChr, chr);
                 }
@@ -150,12 +163,6 @@ public class BigWigDataSource extends AbstractDataSource implements FeatureSourc
         return TrackType.OTHER;
     }
 
-    public void setWindowFunction(WindowFunction statType) {
-        // Invalidate caches
-        wholeGenomeScores = null;
-
-        this.windowFunction = statType;
-    }
 
     public boolean isLogNormalized() {
         return false;
@@ -170,9 +177,6 @@ public class BigWigDataSource extends AbstractDataSource implements FeatureSourc
         return 0;
     }
 
-    public WindowFunction getWindowFunction() {
-        return windowFunction;
-    }
 
     public Collection<WindowFunction> getAvailableWindowFunctions() {
         return availableWindowFunctions;
@@ -310,10 +314,11 @@ public class BigWigDataSource extends AbstractDataSource implements FeatureSourc
 
     private List<LocusScore> getWholeGenomeScores() {
 
-        if (genome.getHomeChromosome().equals(Globals.CHR_ALL)) {
-            if (wholeGenomeScores == null) {
+        if (genome.getHomeChromosome().equals(Globals.CHR_ALL) && windowFunction != WindowFunction.none) {
+            if (wholeGenomeScores.get(windowFunction) == null) {
                 double scale = genome.getNominalLength() / screenWidth;
-                wholeGenomeScores = new ArrayList<LocusScore>();
+                ArrayList<LocusScore> scores = new ArrayList<LocusScore>();
+                wholeGenomeScores.put(windowFunction, scores);
 
                 for (String chrName : genome.getLongChromosomeNames()) {
                     Chromosome chr = genome.getChromosome(chrName);
@@ -340,14 +345,14 @@ public class BigWigDataSource extends AbstractDataSource implements FeatureSourc
                         }
 
                         int genomeEnd = genome.getGenomeCoordinate(chrName, rec.getChromEnd());
-                        wholeGenomeScores.add(new BasicScore(genomeStart, genomeEnd, value));
+                        scores.add(new BasicScore(genomeStart, genomeEnd, value));
                         lastGenomeEnd = genomeEnd;
                     }
                 }
 
 
             }
-            return wholeGenomeScores;
+            return wholeGenomeScores.get(windowFunction);
         } else {
             return null;
         }
@@ -357,7 +362,7 @@ public class BigWigDataSource extends AbstractDataSource implements FeatureSourc
     @Override
     public void dispose() {
         super.dispose();
-        if(reader != null) {
+        if (reader != null) {
             reader.close();
         }
     }
@@ -390,7 +395,7 @@ public class BigWigDataSource extends AbstractDataSource implements FeatureSourc
         return null;  //To change body of implemented methods use File | Settings | File Templates.
     }
 
-    public  class WrappedIterator implements Iterator<Feature> {
+    public class WrappedIterator implements Iterator<Feature> {
 
         BigBedIterator bedIterator;
 
@@ -405,7 +410,7 @@ public class BigWigDataSource extends AbstractDataSource implements FeatureSourc
         public Feature next() {
             BedFeature feat = bedIterator.next();
             String[] restOfFields = feat.getRestOfFields();
-            String [] tokens = new String[restOfFields.length + 3];
+            String[] tokens = new String[restOfFields.length + 3];
             tokens[0] = feat.getChromosome();
             tokens[1] = String.valueOf(feat.getStartBase());
             tokens[2] = String.valueOf(feat.getEndBase());
@@ -441,7 +446,6 @@ public class BigWigDataSource extends AbstractDataSource implements FeatureSourc
             return chr.equals(this.chr) && start >= this.start && end <= this.end;
         }
     }
-
 
 
 }

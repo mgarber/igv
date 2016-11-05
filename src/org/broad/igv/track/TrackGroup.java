@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 /*
@@ -48,6 +62,8 @@ public class TrackGroup {
 
     private boolean selected;
 
+    private boolean autoScale = false;
+
 
     public TrackGroup() {
         this("");
@@ -68,6 +84,21 @@ public class TrackGroup {
         return tracks;
     }
 
+    public List<Track> getVisibleTracks() {
+        List<Track> visibleTracks = new ArrayList<Track>();
+        for(Track t : tracks) {
+            if(t.isVisible()) visibleTracks.add(t);
+        }
+        return visibleTracks;
+    }
+
+    public boolean isAutoScale() {
+        return autoScale;
+    }
+
+    public void setAutoScale(boolean autoScale) {
+        this.autoScale = autoScale;
+    }
 
     public int indexOf(Track track) {
         return tracks.indexOf(track);
@@ -253,9 +284,9 @@ public class TrackGroup {
             }
         }
 
-        List<Track> tracksWithScore = new ArrayList(getTracks().size());
-        List<Track> otherTracks = new ArrayList(getTracks().size());
-        for (Track t : getTracks()) {
+        List<Track> tracksWithScore = new ArrayList(getVisibleTracks().size());
+        List<Track> otherTracks = new ArrayList(getVisibleTracks().size());
+        for (Track t : getVisibleTracks()) {
             if (t.isRegionScoreType(type)) {
                 tracksWithScore.add(t);
             } else {
@@ -493,4 +524,6 @@ public class TrackGroup {
         }
 
     }
+
+
 }

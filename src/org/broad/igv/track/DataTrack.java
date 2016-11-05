@@ -1,13 +1,28 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
+
 /*
  * FeatureTrackH5.java
  *
@@ -39,8 +54,7 @@ import javax.xml.bind.annotation.XmlAttribute;
 import javax.xml.bind.annotation.XmlType;
 import javax.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
 import java.awt.*;
-import java.util.Collection;
-import java.util.HashMap;
+import java.util.*;
 import java.util.List;
 
 /**
@@ -49,7 +63,7 @@ import java.util.List;
  * @author jrobinso
  */
 @XmlType(factoryMethod = "getNextTrack")
-public abstract class DataTrack extends AbstractTrack {
+public abstract class DataTrack extends AbstractTrack implements ScalableTrack {
 
     private static Logger log = Logger.getLogger(DataTrack.class);
 
@@ -67,46 +81,32 @@ public abstract class DataTrack extends AbstractTrack {
     }
 
 
-    public void render(RenderContext context, Rectangle rect){
+    public void render(RenderContext context, Rectangle rect) {
         if (featuresLoading) {
             return;
         }
 
-        if(isRepeatY(rect)){
-            overlay(context, rect);
-        }else{
-            renderFirstTimeY(context, rect);
-            this.lastRenderY = rect.y;
-        }
-    }
-
-
-    /**
-     * Called the first time we render for a given Y-coordinate
-     * @param context
-     * @param rect
-     */
-    private void renderFirstTimeY(RenderContext context, Rectangle rect) {
-        List<LocusScore> inViewScores = getInViewScores(context, rect);
+        List<LocusScore> inViewScores = getInViewScores(context.getReferenceFrame());
 
         if ((inViewScores == null || inViewScores.size() == 0) && Globals.CHR_ALL.equals(context.getChr())) {
             Graphics2D g = context.getGraphic2DForColor(Color.gray);
             GraphicUtils.drawCenteredText("Data not available for whole genome view; zoom in to see data", rect, g);
-        }else{
+        } else {
             getRenderer().render(inViewScores, context, rect, this);
-            if(FrameManager.isExomeMode()){
-                int x = context.getGraphics().getClipBounds().x;
-                Rectangle scaleRect = new Rectangle(x, rect.y, rect.width, rect.height);
-                DataRenderer.drawScale(getDataRange(), context, scaleRect);
-            }
         }
 
     }
 
-    public void overlay(RenderContext context, Rectangle rect){
-        List<LocusScore> inViewScores = getInViewScores(context, rect);
-        if(inViewScores != null){
-            synchronized (inViewScores){
+
+    public void overlay(RenderContext context, Rectangle rect) {
+
+        List<LocusScore> inViewScores = getInViewScores(context.getReferenceFrame());
+
+        if ((inViewScores == null || inViewScores.size() == 0) && Globals.CHR_ALL.equals(context.getChr())) {
+            Graphics2D g = context.getGraphic2DForColor(Color.gray);
+            GraphicUtils.drawCenteredText("Data not available for whole genome view; select chromosome to see data", rect, g);
+        } else if (inViewScores != null) {
+            synchronized (inViewScores) {
                 getRenderer().renderScores(this, inViewScores, context, rect);
             }
         }
@@ -114,71 +114,85 @@ public abstract class DataTrack extends AbstractTrack {
     }
 
 
-    private List<LocusScore> getInViewScores(RenderContext context, Rectangle rect){
-        String chr = context.getChr();
-        int start = (int) context.getOrigin();
-        int end = (int) context.getEndLocation() + 1;
-        int zoom = context.getZoom();
+    public List<LocusScore> getInViewScores(ReferenceFrame referenceFrame) {
+
+        String chr = referenceFrame.getChrName();
+        int start = (int) referenceFrame.getOrigin();
+        int end = (int) referenceFrame.getEnd() + 1;
+        int zoom = referenceFrame.getZoom();
 
         List<LocusScore> inViewScores = null;
 
-        LoadedDataInterval interval = loadedIntervalCache.get(context.getReferenceFrame().getName());
+        LoadedDataInterval interval = loadedIntervalCache.get(referenceFrame.getName());
         if (interval != null && interval.contains(chr, start, end, zoom)) {
             inViewScores = interval.getScores();
         } else {
-            inViewScores = loadScores(context);
+            inViewScores = loadScores(referenceFrame);
         }
 
+        // Trim scores
+        int startIdx = FeatureUtils.getIndexBefore(start, inViewScores);
+        int endIdx = inViewScores.size();   // Starting guess
+        int tmp = FeatureUtils.getIndexBefore(end, inViewScores);
 
-        //Not all data sources support whole genome views, tell user if CHR_ALL not available
-        if ((inViewScores == null || inViewScores.size() == 0) && Globals.CHR_ALL.equals(chr)) {
-            Graphics2D g = context.getGraphic2DForColor(Color.gray);
-            GraphicUtils.drawCenteredText("Data not available for whole genome view; zoom in to see data", rect, g);
-        } else {
-            if (autoScale && !FrameManager.isGeneListMode()) {
+        if (tmp < 0)
+            return Collections.EMPTY_LIST;
 
-                InViewInterval inter = computeScale(start, end, inViewScores);
-                if (inter.endIdx > inter.startIdx) {
-                    inViewScores = inViewScores.subList(inter.startIdx, inter.endIdx);
-
-                    DataRange dr = getDataRange();
-                    float min = Math.min(0, inter.dataMin);
-                    float base = Math.max(min, dr.getBaseline());
-                    float max = inter.dataMax;
-                    // Pathological case where min ~= max  (no data in view)
-                    if (max - min <= (2 * Float.MIN_VALUE)) {
-                        max = min + 1;
-                    }
-
-                    DataRange newDR = new DataRange(min, base, max, dr.isDrawBaseline());
-                    newDR.setType(dr.getType());
-                    setDataRange(newDR);
+        else {
+            for (int i = tmp; i < inViewScores.size(); i++) {
+                if (inViewScores.get(i).getStart() > end) {
+                    endIdx = i+1;
+                    break;
                 }
-
             }
+            endIdx = Math.max(startIdx + 1, endIdx);
+
+            return startIdx == 0 && endIdx == inViewScores.size() - 1 ?
+                    inViewScores :
+                    inViewScores.subList(startIdx, endIdx);
         }
-        return inViewScores;
     }
 
-    @Override
-    public synchronized void load(RenderContext context) {
+    public Range getInViewRange(ReferenceFrame referenceFrame) {
 
-        String chr = context.getChr();
-        int start = (int) context.getOrigin();
-        int end = (int) context.getEndLocation() + 1;
-        int zoom = context.getZoom();
-        LoadedDataInterval interval = loadedIntervalCache.get(context.getReferenceFrame().getName());
+        List<LocusScore> scores = getInViewScores(referenceFrame);
+        if (scores.size() > 0) {
+            float min = Float.MAX_VALUE;
+            float max = -Float.MAX_VALUE;
+            for (LocusScore score : scores) {
+                float value = score.getScore();
+                if (!Float.isNaN(value)) {
+                    min = Math.min(value, min);
+                    max = Math.max(value, max);
+                }
+            }
+            return new Range(min, max);
+        } else {
+            return null;
+        }
+
+    }
+
+    public synchronized void load(ReferenceFrame referenceFrame) {
+
+        String chr = referenceFrame.getChrName();
+        int start = (int) referenceFrame.getOrigin();
+        int end = (int) referenceFrame.getEnd() + 1;
+        int zoom = referenceFrame.getZoom();
+
+
+        LoadedDataInterval interval = loadedIntervalCache.get(referenceFrame.getName());
         if (interval == null || !interval.contains(chr, start, end, zoom)) {
-            loadScores(context);
+            loadScores(referenceFrame);
         }
     }
 
-    public List<LocusScore> loadScores(final RenderContext context) {
+    public List<LocusScore> loadScores(final ReferenceFrame referenceFrame) {
 
-        String chr = context.getChr();
-        int start = (int) context.getOrigin();
-        int end = (int) context.getEndLocation() + 1;
-        int zoom = context.getZoom();
+        String chr = referenceFrame.getChrName();
+        int start = (int) referenceFrame.getOrigin();
+        int end = (int) referenceFrame.getEnd() + 1;
+        int zoom = referenceFrame.getZoom();
 
         try {
             featuresLoading = true;
@@ -187,19 +201,19 @@ public abstract class DataTrack extends AbstractTrack {
 
             String queryChr = chr;
             if (genome != null) {
-                queryChr = genome.getChromosomeAlias(chr);
+                queryChr = genome.getCanonicalChrName(chr);
                 Chromosome c = genome.getChromosome(chr);
                 if (c != null) maxEnd = Math.max(c.getLength(), end);
             }
 
             // Expand interval +/- 50%, unless in a multi-locus mode with "lots" of frames
-            boolean multiLocus = FrameManager.isExomeMode() || (FrameManager.getFrames().size() > 4);
+            boolean multiLocus = (FrameManager.getFrames().size() > 4);
             int delta = multiLocus ? 1 : (end - start) / 2;
             int expandedStart = Math.max(0, start - delta);
             int expandedEnd = Math.min(maxEnd, end + delta);
             List<LocusScore> inViewScores = getSummaryScores(queryChr, expandedStart, expandedEnd, zoom);
             LoadedDataInterval interval = new LoadedDataInterval(chr, start, end, zoom, inViewScores);
-            loadedIntervalCache.put(context.getReferenceFrame().getName(), interval);
+            loadedIntervalCache.put(referenceFrame.getName(), interval);
             return inViewScores;
 
         } finally {
@@ -244,11 +258,10 @@ public abstract class DataTrack extends AbstractTrack {
      *
      * @param chr
      * @param position
-     * @param y
-     * @param frame
-     * @return
+     * @param mouseX
+     *@param frame  @return
      */
-    public String getValueStringAt(String chr, double position, int y, ReferenceFrame frame) {
+    public String getValueStringAt(String chr, double position, int mouseX, int mouseY, ReferenceFrame frame) {
         StringBuffer buf = new StringBuffer();
         LocusScore score = getLocusScoreAt(chr, position, frame);
         // If there is no value here, return null to signal no popup
@@ -260,7 +273,7 @@ public abstract class DataTrack extends AbstractTrack {
             buf.append("Data scale: " + getDataRange().getMinimum() + " - " + getDataRange().getMaximum() + "<br>");
         }
 
-        buf.append(score.getValueString(position, getWindowFunction()));
+        buf.append(score.getValueString(position, mouseX, getWindowFunction()));
         return buf.toString();
     }
 
@@ -282,39 +295,6 @@ public abstract class DataTrack extends AbstractTrack {
 
 
     abstract public List<LocusScore> getSummaryScores(String chr, int startLocation, int endLocation, int zoom);
-
-    private InViewInterval computeScale(double origin, double end, List<LocusScore> scores) {
-
-        InViewInterval interval = new InViewInterval();
-
-        if (scores.size() == 1) {
-            interval.dataMax = Math.max(0, scores.get(0).getScore());
-            interval.dataMin = Math.min(0, scores.get(0).getScore());
-        } else {
-            interval.startIdx = 0;
-            interval.endIdx = scores.size();
-            for (int i = 1; i < scores.size(); i++) {
-                if (scores.get(i).getEnd() >= origin) {
-                    interval.startIdx = i - 1;
-                    break;
-                }
-            }
-
-            for (int i = interval.startIdx + 1; i < scores.size(); i++) {
-                LocusScore locusScore = scores.get(i);
-                float value = locusScore.getScore();
-                if (Float.isNaN(value)) value = 0;
-                interval.dataMax = Math.max(interval.dataMax, value);
-                interval.dataMin = Math.min(interval.dataMin, value);
-                if (locusScore.getStart() > end) {
-                    interval.endIdx = i;
-                    break;
-                }
-            }
-        }
-
-        return interval;
-    }
 
     /**
      * Get the score over the provided region for the given type. Different types
@@ -396,7 +376,7 @@ public abstract class DataTrack extends AbstractTrack {
                         int interval = Math.min(end, score.getEnd()) - Math.max(start, score.getStart());
                         float value = score.getScore();
                         //For sorting it makes sense to skip NaNs. Not sure about other contexts
-                        if(Float.isNaN(value)){
+                        if (Float.isNaN(value)) {
                             hasNan = true;
                             continue;
                         }
@@ -405,10 +385,10 @@ public abstract class DataTrack extends AbstractTrack {
                     }
                 }
                 if (intervalSum <= 0) {
-                    if(hasNan){
+                    if (hasNan) {
                         //If the only existing scores are NaN, the overall score should be NaN
                         return Float.NaN;
-                    }else{
+                    } else {
                         // No scores in interval
                         return -Float.MAX_VALUE;
                     }
@@ -449,13 +429,6 @@ public abstract class DataTrack extends AbstractTrack {
             regionScore /= intervalSum;
         }
         return regionScore;
-    }
-
-    class InViewInterval {
-        int startIdx;
-        int endIdx;
-        float dataMax = 0;
-        float dataMin = 0;
     }
 
     @SubtlyImportant

@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.ui;
@@ -27,7 +41,9 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.io.File;
 import java.net.URL;
+import java.net.URLDecoder;
 import java.util.Arrays;
 import java.util.HashSet;
 
@@ -62,13 +78,48 @@ public class Main {
 
         Thread.setDefaultUncaughtExceptionHandler(new DefaultExceptionHandler());
 
+        Main.IGVArgs igvArgs = new Main.IGVArgs(args);
+
+        // Do this early
+        if (igvArgs.igvDirectory != null) {
+            setIgvDirectory(igvArgs);
+        }
+
         initApplication();
 
         JFrame frame = new JFrame();
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         ImageIcon icon = new ImageIcon(Main.class.getResource("mainframeicon.png"));
         if (icon != null) frame.setIconImage(icon.getImage());
-        open(frame, args);
+        open(frame, igvArgs);
+
+    }
+
+    private static void setIgvDirectory(IGVArgs igvArgs) {
+
+        File dir = new File(igvArgs.igvDirectory);
+        if (!dir.exists()) {
+
+            // doesn't exist -- try to create it
+            try {
+                dir.mkdir();
+            } catch (Exception e) {
+                log.error("Error creating igv directory " + dir.getAbsolutePath(), e);
+                return;
+            }
+
+            if (dir.isDirectory()) {
+                if (dir.canWrite()) {
+                    DirectoryManager.setIgvDirectory(dir);
+                } else {
+                    log.error("IGV directory '" + dir.getAbsolutePath() + "'is not writable");
+                }
+            } else {
+                log.error("'" + dir.getAbsolutePath() + "' is not a directory");
+            }
+        } else {
+            log.error("'" + dir.getAbsolutePath() + "' not found");
+        }
 
     }
 
@@ -158,13 +209,13 @@ public class Main {
 
 
     /**
-     * Open an IGV instance in the supplied Frame.
+     * Open an IGV instance in the supplied Frame.  This method used by unit tests
      *
      * @param frame
      */
     public static void open(Frame frame) {
 
-        open(frame, new String[]{});
+        open(frame, new IGVArgs(new String[]{}));
     }
 
 
@@ -172,9 +223,9 @@ public class Main {
      * Open an IGV instance in the supplied frame.
      *
      * @param frame
-     * @param args  command-line arguments
+     * @param igvArgs command-line arguments
      */
-    public static void open(Frame frame, String[] args) {
+    public static void open(Frame frame, Main.IGVArgs igvArgs) {
 
         // Add a listener for the "close" icon, unless its a JFrame
         if (!(frame instanceof JFrame)) {
@@ -201,8 +252,6 @@ public class Main {
         });
 
         initializeLookAndFeel();
-
-        Main.IGVArgs igvArgs = new Main.IGVArgs(args);
 
         // Optional arguments
         if (igvArgs.getPropertyOverrides() != null) {
@@ -339,6 +388,7 @@ public class Main {
         private String indexFile = null;
         private String coverageFile = null;
         private String name = null;
+        public String igvDirectory = null;
 
         IGVArgs(String[] args) {
             if (args != null) {
@@ -361,6 +411,7 @@ public class Main {
             CmdLineParser.Option indexFileOption = parser.addStringOption('i', "indexFile");
             CmdLineParser.Option coverageFileOption = parser.addStringOption('c', "coverageFile");
             CmdLineParser.Option nameOption = parser.addStringOption('n', "name");
+            CmdLineParser.Option igvDirectoryOption = parser.addStringOption("igvDirectory");
 
             try {
                 parser.parse(args);
@@ -378,10 +429,11 @@ public class Main {
             indexFile = (String) parser.getOptionValue(indexFileOption);
             coverageFile = (String) parser.getOptionValue(coverageFileOption);
             name = (String) parser.getOptionValue(nameOption);
+            igvDirectory = (String) parser.getOptionValue(igvDirectoryOption);
 
             String[] nonOptionArgs = parser.getRemainingArgs();
             if (nonOptionArgs != null && nonOptionArgs.length > 0) {
-                String firstArg = nonOptionArgs[0];
+                String firstArg = URLDecoder.decode(nonOptionArgs[0]);
                 if (firstArg != null && !firstArg.equals("ignore")) {
                     log.info("Loading: " + firstArg);
                     if (firstArg.endsWith(".xml") || firstArg.endsWith(".php") || firstArg.endsWith(".php3")
@@ -429,11 +481,7 @@ public class Main {
                 String key = arg.substring(0, eq);
                 String val = arg.substring(eq + 1);
 
-                if (key.equalsIgnoreCase("server")) {
-                    PreferenceManager.getInstance().put(PreferenceManager.IONTORRENT_SERVER, val);
-                    log.info("Got server: " + key + "=" + val);
-                    return null;
-                } else if (key.equalsIgnoreCase("sessionURL") || key.equalsIgnoreCase("file")) {
+                if (key.equalsIgnoreCase("sessionURL") || key.equalsIgnoreCase("file")) {
 
                     if (val.endsWith(".xml") || val.endsWith(".php") || val.endsWith(".php3")
                             || val.endsWith(".session")) {

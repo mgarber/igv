@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.ui;
@@ -177,24 +191,4 @@ public class IGVTestHeaded extends AbstractHeadedTest {
         Assert.assertEquals(26, chromos.length);
     }
 
-
-    public void testExomeView() throws Exception {
-        String file = "http://www.broadinstitute.org/igvdata/1KG/pilot2Bams/NA12891.SLX.bam";
-        List<Track> tracks = IGV.getInstance().load(new ResourceLocator(file));
-        Thread.sleep(10000);
-        //TestUtils.loadSession(igv, TestUtils.DATA_DIR + "sessions/slx_ceu_father.xml");
-
-        Assert.assertEquals(2, tracks.size());
-
-        FrameManager.setExomeMode(true, true);
-        IGV.getInstance().resetFrames();
-
-        String locus = "chr7:55,208,260-55,240,460";
-        igv.goToLocus(locus);
-
-        //File out = new File(TestUtils.DATA_DIR, "testsnap.png");
-        //SnapshotUtilities.doComponentSnapshot(IGV.getMainFrame(), out, SnapshotFileChooser.SnapshotFileType.PNG);
-
-
-    }
 }

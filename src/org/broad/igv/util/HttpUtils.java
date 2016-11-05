@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.util;
@@ -119,9 +133,14 @@ public class HttpUtils {
      * @throws IOException
      */
     public String getContentsAsString(URL url) throws IOException {
+       return getContentsAsString(url, null);
+    }
 
+
+    public String getContentsAsString(URL url, Map<String, String> headers) throws IOException {
         InputStream is = null;
-        HttpURLConnection conn = openConnection(url, null);
+
+        HttpURLConnection conn = openConnection(url, headers);
         try {
             is = conn.getInputStream();
             return readContents(is);
@@ -130,8 +149,8 @@ public class HttpUtils {
             throw e;
         } finally {
             if (is != null) is.close();
-        }
-    }
+        }    }
+
 
     public String getContentsAsJSON(URL url) throws IOException {
 
@@ -739,6 +758,11 @@ public class HttpUtils {
         return conn;
     }
 
+    /**
+     * Explicitly map cnames here.  Also fix other url migration issues.
+     * @param url
+     * @return
+     */
     private URL mapCname(URL url) {
 
         String host = url.getHost();
@@ -747,7 +771,8 @@ public class HttpUtils {
             if (host.equals("igv.broadinstitute.org")) {
                 urlString = urlString.replace("igv.broadinstitute.org", "s3.amazonaws.com/igv.broadinstitute.org");
             } else if (host.equals("igvdata.broadinstitute.org")) {
-                urlString = urlString.replace("igvdata.broadinstitute.org", "dn7ywbm9isq8j.cloudfront.net");
+                // Drop support for cloudfront server
+                urlString = urlString.replace("igvdata.broadinstitute.org", "s3.amazonaws.com/igv.broadinstitute.org");
             } else if (host.equals("www.broadinstitute.org")) {
                 urlString = urlString.replace("www.broadinstitute.org/igvdata", "data.broadinstitute.org/igvdata");
             }
@@ -812,7 +837,8 @@ public class HttpUtils {
                     if (byteRangeTestSuccess) {
                         log.info("Range-byte request succeeded");
                     } else {
-                        log.info("Range-byte test failed -- Server does not support range-byte requests or problem with client network environment.");
+                        log.info("Range-byte test failed -- Host: " + host +
+                                " does not support range-byte requests or there is a problem with client network environment.");
                     }
 
                     byteRangeTestMap.put(host, byteRangeTestSuccess);
@@ -822,8 +848,9 @@ public class HttpUtils {
                 } catch (IOException e) {
                     log.error("Error while testing byte range " + e.getMessage());
                     // We could not reach the test server, so we can't know if this client can do byte-range tests or
-                    // not.  Take the "optimistic" view.
-                    return true;
+                    // not.  Take the "pessimistic" view.
+                    byteRangeTestMap.put(host, false);
+                    return false;
                 } finally {
                     if (str != null) try {
                         str.close();
@@ -872,7 +899,6 @@ public class HttpUtils {
         }
         return map;
     }
-
 
     public static class ProxySettings {
         boolean auth = false;

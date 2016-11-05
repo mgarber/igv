@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 /*
@@ -15,7 +29,6 @@
  */
 package org.broad.igv.sam;
 
-import com.google.common.eventbus.Subscribe;
 import org.apache.log4j.Logger;
 import org.broad.igv.Globals;
 import org.broad.igv.PreferenceManager;
@@ -27,6 +40,7 @@ import org.broad.igv.goby.GobyCountArchiveDataSource;
 import org.broad.igv.renderer.BarChartRenderer;
 import org.broad.igv.renderer.DataRange;
 import org.broad.igv.renderer.DataRenderer;
+import org.broad.igv.renderer.GraphicUtils;
 import org.broad.igv.session.IGVSessionReader;
 import org.broad.igv.session.SubtlyImportant;
 import org.broad.igv.tdf.TDFDataSource;
@@ -35,13 +49,13 @@ import org.broad.igv.track.*;
 import org.broad.igv.ui.DataRangeDialog;
 import org.broad.igv.ui.IGV;
 import org.broad.igv.ui.color.ColorUtilities;
-import org.broad.igv.ui.event.DataLoadedEvent;
-import org.broad.igv.ui.event.ViewChange;
+import org.broad.igv.ui.event.AlignmentTrackEvent;
 import org.broad.igv.ui.panel.FrameManager;
 import org.broad.igv.ui.panel.IGVPopupMenu;
 import org.broad.igv.ui.panel.ReferenceFrame;
 import org.broad.igv.ui.util.FileDialogUtils;
 import org.broad.igv.ui.util.MessageUtils;
+import org.broad.igv.ui.util.UIUtilities;
 import org.broad.igv.util.ResourceLocator;
 import org.broad.igv.util.StringUtils;
 
@@ -52,6 +66,7 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.File;
+import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -60,10 +75,12 @@ import java.util.List;
  * @author jrobinso
  */
 @XmlType(factoryMethod = "getNextTrack")
-public class CoverageTrack extends AbstractTrack {
+
+public class CoverageTrack extends AbstractTrack implements ScalableTrack {
 
     private static Logger log = Logger.getLogger(CoverageTrack.class);
     public static final int TEN_MB = 10000000;
+    static DecimalFormat locationFormatter = new DecimalFormat();
 
     char[] nucleotides = {'a', 'c', 'g', 't', 'n'};
     public static Color lightBlue = new Color(0, 0, 150);
@@ -75,18 +92,21 @@ public class CoverageTrack extends AbstractTrack {
     public static final boolean DEFAULT_SHOW_REFERENCE = false;
 
     // User settable state -- these attributes should be stored in the session file
-    @XmlAttribute private float snpThreshold;
+    @XmlAttribute
+    private float snpThreshold;
     //TODO This appears to not be used anywhere, remove?
-    @XmlAttribute boolean showReference;
+    @XmlAttribute
+    private boolean showReference;
 
-    AlignmentDataManager dataManager;
-    CoverageDataSource dataSource;
-    DataRenderer dataSourceRenderer;
-    IntervalRenderer intervalRenderer;
-    PreferenceManager prefs;
-    JMenuItem dataRangeItem;
-    JMenuItem autoscaleItem;
-    Genome genome;
+    private AlignmentTrack alignmentTrack;
+    private AlignmentDataManager dataManager;
+    private CoverageDataSource dataSource;
+    private DataRenderer dataSourceRenderer;
+    private IntervalRenderer intervalRenderer;
+    private PreferenceManager prefs;
+    private JMenuItem dataRangeItem;
+    private Genome genome;
+    private boolean removed = false;
 
     /**
      * Whether to autoscale across all ReferenceFrames
@@ -96,20 +116,27 @@ public class CoverageTrack extends AbstractTrack {
 
     private AlignmentTrack.RenderOptions renderOptions = null;
 
+    @SubtlyImportant
+    public CoverageTrack() {
+
+    }
+
+
     /**
      * Copy constructor.  Used for Sashimi plot.
      *
      * @param track
      */
-    public CoverageTrack(CoverageTrack track){
-        this(track.getResourceLocator(), track.getName(), track.genome);
-        if(track.dataManager != null) this.setDataManager(track.dataManager);
-        if(track.dataSource != null) this.setDataSource(track.dataSource);
+    public CoverageTrack(CoverageTrack track) {
+        this(track.getResourceLocator(), track.getName(), track.alignmentTrack, track.genome);
+        if (track.dataManager != null) this.setDataManager(track.dataManager);
+        if (track.dataSource != null) this.setDataSource(track.dataSource);
     }
 
-    public CoverageTrack(ResourceLocator locator, String name, Genome genome) {
+    public CoverageTrack(ResourceLocator locator, String name, AlignmentTrack alignmentTrack, Genome genome) {
         super(locator, locator.getPath() + "_coverage", name);
         super.setDataRange(new DataRange(0, 0, 60));
+        this.alignmentTrack = alignmentTrack;
         this.genome = genome;
         intervalRenderer = new IntervalRenderer();
         setMaximumHeight(40);
@@ -127,7 +154,6 @@ public class CoverageTrack extends AbstractTrack {
 
     public void setDataManager(AlignmentDataManager dataManager) {
         this.dataManager = dataManager;
-        this.dataManager.getEventBus().register(this);
     }
 
     public void setDataSource(CoverageDataSource dataSource) {
@@ -137,7 +163,7 @@ public class CoverageTrack extends AbstractTrack {
 
     }
 
-    public void setSnpThreshold(float snpThreshold){
+    public void setSnpThreshold(float snpThreshold) {
         this.snpThreshold = snpThreshold;
     }
 
@@ -154,87 +180,48 @@ public class CoverageTrack extends AbstractTrack {
         this.renderOptions = renderOptions;
     }
 
-    AlignmentTrack.RenderOptions getRenderOptions(){
+    AlignmentTrack.RenderOptions getRenderOptions() {
         return this.renderOptions;
     }
 
-    /**
-     * Rescale as necessary, and tell components to repaint
-     * @param e
-     */
-    @Subscribe
-    public void receiveDataLoaded(DataLoadedEvent e){
-        ReferenceFrame frame = e.context.getReferenceFrame();
-        rescale(frame);
-        frame.getEventBus().post(new ViewChange.Result());
+    public boolean isRemoved() {
+        return removed;
     }
 
-    public void rescale(ReferenceFrame iframe) {
-        List<ReferenceFrame> frameList = new ArrayList<ReferenceFrame>();
-        if(iframe != null) frameList.add(iframe);
-        if(globalAutoScale){
-            frameList.addAll(FrameManager.getFrames());
-        }
-
-        if (autoScale && dataManager != null) {
-
-            int max = 10;
-            for (ReferenceFrame frame : frameList) {
-                AlignmentInterval interval = dataManager.getLoadedInterval(frame.getCurrentRange());
-                if (interval == null) continue;
-
-                int origin = (int) frame.getOrigin();
-                int end = (int) frame.getEnd() + 1;
-
-                int intervalMax = interval.getMaxCount(origin, end);
-                max = intervalMax > max ? intervalMax : max;
-            }
-
-            DataRange newRange = new DataRange(0, max);
-            newRange.setType(getDataRange().getType());
-            super.setDataRange(newRange);
-
-        }
+    @Override
+    public void dispose() {
+        super.dispose();
+        removed = true;
+        dataManager = null;
+        dataSource = null;
+        alignmentTrack = null;
+        setVisible(false);
     }
 
-    public void render(RenderContext context, Rectangle rect){
+    public void render(RenderContext context, Rectangle rect) {
 
-        overlay(context, rect);
+        if (context.getScale() > dataManager.getMinVisibleScale() && dataSource == null) {
+            Rectangle visibleRect = context.getVisibleRect().intersection(rect);
+            Graphics2D g = context.getGraphic2DForColor(Color.gray);
+            GraphicUtils.drawCenteredText("Zoom in to see coverage.", visibleRect, g);
+            return;
+        }
+
+
+        drawData(context, rect);
 
         drawBorder(context, rect);
-        List<LocusScore> scores = getSummaryScores(context);
-        if (scores != null) {
+
+        if (dataSourceRenderer != null) {
             dataSourceRenderer.renderBorder(this, context, rect);
+            dataSourceRenderer.renderAxis(this, context, rect);
+        } else {
+            DataRenderer.drawScale(this.getDataRange(), context, rect);
         }
-
-        if(!isRepeatY(rect)){
-            lastRenderY = rect.y;
-            if(dataSourceRenderer != null){
-                dataSourceRenderer.renderAxis(this, context, rect);
-            }
-            if(FrameManager.isExomeMode()){
-                int x = context.getGraphics().getClipBounds().x;
-                Rectangle scaleRect = new Rectangle(x, rect.y, rect.width, rect.height);
-                drawScale(context, scaleRect);
-            }
-
-        }
-
     }
 
-    private List<LocusScore> getSummaryScores(RenderContext context){
-        List<LocusScore> scores = null;
-        if(dataSource != null){
-            String chr = context.getChr();
-            int start = (int) context.getOrigin();
-            int end = (int) context.getEndLocation();
-            int zoom = context.getZoom();
-            scores = dataSource.getSummaryScoresForRange(chr, start, end, zoom);
-        }
-        return scores;
-    }
 
-    public void overlay(RenderContext context, Rectangle rect) {
+    public void drawData(RenderContext context, Rectangle rect) {
 
         float maxRange = PreferenceManager.getInstance().getAsFloat(PreferenceManager.SAM_MAX_VISIBLE_RANGE);
         float minVisibleScale = (maxRange * 1000) / 700;
@@ -243,28 +230,103 @@ public class CoverageTrack extends AbstractTrack {
             //Show coverage calculated from intervals if zoomed in enough
             AlignmentInterval interval = null;
             if (dataManager != null) {
-                dataManager.load(context, renderOptions, true);
+                dataManager.load(context.getReferenceFrame(), renderOptions, true);
                 interval = dataManager.getLoadedInterval(context.getReferenceFrame().getCurrentRange());
             }
             if (interval != null) {
                 if (interval.contains(context.getChr(), (int) context.getOrigin(), (int) context.getEndLocation())) {
-                    if(autoScale) rescale(context.getReferenceFrame());
+                    //if (autoScale) rescale(context.getReferenceFrame());
                     intervalRenderer.paint(context, rect, interval.getCounts());
                     return;
                 }
             }
         }
 
-        //Use precomputed scores, if available
-        List<LocusScore> scores = getSummaryScores(context);
+        //Not rendered yet.  Use precomputed scores, if available
+        List<LocusScore> scores = getInViewScores(context.getReferenceFrame());
         if (scores != null) {
             dataSourceRenderer.renderScores(this, scores, context, rect);
         }
 
     }
 
+
+    private List<LocusScore> getInViewScores(ReferenceFrame frame) {
+
+        List<LocusScore> inViewScores = null;
+
+        if (dataSource != null) {
+            String chr = frame.getChrName();
+            int start = (int) frame.getOrigin();
+            int end = (int) frame.getEnd();
+            int zoom = frame.getZoom();
+            inViewScores = dataSource.getSummaryScoresForRange(chr, start, end, zoom);
+
+            // Trim
+            // Trim scores
+            int startIdx = FeatureUtils.getIndexBefore(start, inViewScores);
+            int endIdx = inViewScores.size() - 1;   // Starting guess
+            int tmp = Math.max(0, FeatureUtils.getIndexBefore(end, inViewScores));
+            for (int i = tmp; i < inViewScores.size(); i++) {
+                if (inViewScores.get(i).getStart() > end) {
+                    endIdx = i - 1;
+                    break;
+                }
+            }
+            endIdx = Math.max(startIdx + 1, endIdx);
+
+            if(inViewScores.size() > 1) {
+                return startIdx == 0 && endIdx == inViewScores.size() - 1 ?
+                        inViewScores :
+                        inViewScores.subList(startIdx, endIdx);
+            }
+            else {
+                return  inViewScores;
+            }
+        }
+        return inViewScores;
+    }
+
+
+    @Override
+    public Range getInViewRange(ReferenceFrame frame) {
+
+        if (dataManager == null || frame.getScale() > dataManager.getMinVisibleScale()) {
+
+            List<LocusScore> scores = getInViewScores(frame);
+            if (scores != null && scores.size() > 0) {
+                float min = scores.get(0).getScore();
+                float max = min;
+                for (int i = 1; i < scores.size(); i++) {
+                    LocusScore score = scores.get(i);
+                    float value = score.getScore();
+                    min = Math.min(value, min);
+                    max = Math.max(value, max);
+                }
+                return new Range(min, max);
+            } else {
+                return null;
+            }
+
+        } else {
+
+            AlignmentInterval interval = dataManager.getLoadedInterval(frame.getCurrentRange());
+            if (interval == null) return null;
+
+            int origin = (int) frame.getOrigin();
+            int end = (int) frame.getEnd() + 1;
+
+            int intervalMax = interval.getMaxCount(origin, end);
+
+            return new Range(0, Math.max(10, intervalMax));
+        }
+
+    }
+
+
     /**
      * Draw border and scale
+     *
      * @param context
      * @param rect
      */
@@ -272,10 +334,6 @@ public class CoverageTrack extends AbstractTrack {
         context.getGraphic2DForColor(Color.gray).drawLine(
                 rect.x, rect.y + rect.height,
                 rect.x + rect.width, rect.y + rect.height);
-
-        if(!FrameManager.isExomeMode()){
-            drawScale(context, rect);
-        }
     }
 
     public void drawScale(RenderContext context, Rectangle rect) {
@@ -286,24 +344,31 @@ public class CoverageTrack extends AbstractTrack {
         return false;
     }
 
-    public String getValueStringAt(String chr, double position, int y, ReferenceFrame frame) {
+    public String getValueStringAt(String chr, double position, int mouseX, int mouseY, ReferenceFrame frame) {
 
         float maxRange = PreferenceManager.getInstance().getAsFloat(PreferenceManager.SAM_MAX_VISIBLE_RANGE);
         float minVisibleScale = (maxRange * 1000) / 700;
+
+        StringBuffer buf = new StringBuffer();
+
+        if (!chr.equals("All")) {
+            String posString = chr + ":" + locationFormatter.format(Math.floor(position + 1));
+            buf.append(posString + "<br>");
+            buf.append("<hr>");
+        }
+
         if (frame.getScale() < minVisibleScale) {
             AlignmentInterval interval = dataManager.getLoadedInterval(frame.getCurrentRange());
-            if (interval == null) return null;
-
-            if (interval.contains(chr, (int) position, (int) position)) {
+            if (interval != null && interval.contains(chr, (int) position, (int) position)) {
                 AlignmentCounts counts = interval.getCounts();
                 if (counts != null) {
-                    return counts.getValueStringAt((int) position);
+                    buf.append(counts.getValueStringAt((int) position));
                 }
             }
         } else {
-            return getPrecomputedValueString(chr, position, frame);
+            buf.append(getPrecomputedValueString(chr, position, frame));
         }
-        return null;
+        return buf.toString();
     }
 
     private String getPrecomputedValueString(String chr, double position, ReferenceFrame frame) {
@@ -328,6 +393,34 @@ public class CoverageTrack extends AbstractTrack {
 
     public float getRegionScore(String chr, int start, int end, int zoom, RegionScoreType type, String frameName) {
         return 0;
+    }
+
+    public void rescale(ReferenceFrame iframe) {
+        List<ReferenceFrame> frameList = new ArrayList<ReferenceFrame>();
+        if (iframe != null) frameList.add(iframe);
+        if (globalAutoScale) {
+            frameList.addAll(FrameManager.getFrames());
+        }
+
+        if (autoScale && dataManager != null) {
+
+            int max = 10;
+            for (ReferenceFrame frame : frameList) {
+                AlignmentInterval interval = dataManager.getLoadedInterval(frame.getCurrentRange());
+                if (interval == null) continue;
+
+                int origin = (int) frame.getOrigin();
+                int end = (int) frame.getEnd() + 1;
+
+                int intervalMax = interval.getMaxCount(origin, end);
+                max = intervalMax > max ? intervalMax : max;
+            }
+
+            DataRange newRange = new DataRange(0, max);
+            newRange.setType(getDataRange().getType());
+            super.setDataRange(newRange);
+
+        }
     }
 
     /**
@@ -360,21 +453,22 @@ public class CoverageTrack extends AbstractTrack {
 
             // First pass, coverage
             int lastpX = -1;
-            //for (AlignmentCounts alignmentCounts : countList) {
+
             int start = alignmentCounts.getStart();
+            int step = alignmentCounts.getBucketSize();
             int nPoints = alignmentCounts.getNumberOfPoints();
             boolean isSparse = alignmentCounts instanceof SparseAlignmentCounts;
 
             for (int idx = 0; idx < nPoints; idx++) {
 
-                int pos = isSparse ? ((SparseAlignmentCounts) alignmentCounts).getPosition(idx) : start + idx;
+                int pos = isSparse ? ((SparseAlignmentCounts) alignmentCounts).getPosition(idx) : start + idx * step;
                 int pX = (int) (rectX + (pos - origin) / scale);
 
                 if (pX > rectMaxX) {
                     break; // We're done,  data is position sorted so we're beyond the right-side of the view
                 }
 
-                int dX = (int) (rectX + (pos + 1 - origin) / scale) - pX;
+                int dX = (int) (rectX + (pos + step - origin) / scale) - pX;
                 dX = dX < 1 ? 1 : dX;
                 if (pX + dX > lastpX) {
                     int pY = (int) rectMaxY - 1;
@@ -394,97 +488,95 @@ public class CoverageTrack extends AbstractTrack {
                     lastpX = pX + dX;
                 }
             }
-            //}
-
 
             // Second pass - mark mismatches
-            lastpX = -1;
-            //for (AlignmentCounts alignmentCounts : countList) {
 
-            BisulfiteCounts bisulfiteCounts = alignmentCounts.getBisulfiteCounts();
-            final int intervalEnd = alignmentCounts.getEnd();
-            final int intervalStart = alignmentCounts.getStart();
-            byte[] refBases = null;
+            if (alignmentCounts.hasBaseCounts()) {
 
-            // Dont try to compute mismatches for intervals > 10 MB
-            if ((intervalEnd - intervalStart) < TEN_MB) {
-                refBases = genome.getSequence(context.getChr(), intervalStart, intervalEnd);
-            }
+                lastpX = -1;
+                BisulfiteCounts bisulfiteCounts = alignmentCounts.getBisulfiteCounts();
+                final int intervalEnd = alignmentCounts.getEnd();
+                final int intervalStart = alignmentCounts.getStart();
+                byte[] refBases = null;
 
-
-            start = alignmentCounts.getStart();
-            nPoints = alignmentCounts.getNumberOfPoints();
-            isSparse = alignmentCounts instanceof SparseAlignmentCounts;
-
-            for (int idx = 0; idx < nPoints; idx++) {
-                int pos = isSparse ? ((SparseAlignmentCounts) alignmentCounts).getPosition(idx) : start + idx;
-
-                BisulfiteCounts.Count bc = null;
-                if (bisulfiteMode && bisulfiteCounts != null) {
-                    bc = bisulfiteCounts.getCount(pos);
+                // Dont try to compute mismatches for intervals > 10 MB
+                if ((intervalEnd - intervalStart) < TEN_MB) {
+                    refBases = genome.getSequence(context.getChr(), intervalStart, intervalEnd);
                 }
 
-                int pX = (int) (rectX + (pos - origin) / scale);
 
-                if (pX > rectMaxX) {
-                    break; // We're done,  data is position sorted so we're beyond the right-side of the view
-                }
+                start = alignmentCounts.getStart();
+                nPoints = alignmentCounts.getNumberOfPoints();
+                isSparse = alignmentCounts instanceof SparseAlignmentCounts;
 
-                int dX = (int) (rectX + (pos + 1 - origin) / scale) - pX;
-                dX = dX < 1 ? 1 : dX;
-                if (pX + dX > lastpX) {
+                for (int idx = 0; idx < nPoints; idx++) {
+                    int pos = isSparse ? ((SparseAlignmentCounts) alignmentCounts).getPosition(idx) : start + idx;
+
+                    BisulfiteCounts.Count bc = null;
+                    if (bisulfiteMode && bisulfiteCounts != null) {
+                        bc = bisulfiteCounts.getCount(pos);
+                    }
+
+                    int pX = (int) (rectX + (pos - origin) / scale);
+
+                    if (pX > rectMaxX) {
+                        break; // We're done,  data is position sorted so we're beyond the right-side of the view
+                    }
+
+                    int dX = (int) (rectX + (pos + 1 - origin) / scale) - pX;
+                    dX = dX < 1 ? 1 : dX;
+                    if (pX + dX > lastpX) {
 
 
-                    // Test to see if any single nucleotide mismatch  (nucleotide other than the reference)
-                    // has a quality weight > 20% of the total
-                    // Skip this test if the position is in the list of known snps or if the reference is unknown
-                    boolean mismatch = false;
+                        // Test to see if any single nucleotide mismatch  (nucleotide other than the reference)
+                        // has a quality weight > 20% of the total
+                        // Skip this test if the position is in the list of known snps or if the reference is unknown
+                        boolean mismatch = false;
 
-                    if (refBases != null) {
-                        int refIdx = pos - intervalStart;
-                        if (refIdx >= 0 && refIdx < refBases.length) {
+                        if (refBases != null) {
+                            int refIdx = pos - intervalStart;
+                            if (refIdx >= 0 && refIdx < refBases.length) {
+                                if (bisulfiteMode) {
+                                    mismatch = (bc != null && (bc.methylatedCount + bc.unmethylatedCount) > 0);
+                                } else {
+                                    byte ref = refBases[refIdx];
+                                    mismatch = alignmentCounts.isMismatch(pos, ref, context.getChr(), snpThreshold);
+                                }
+                            }
+                        }
+
+                        if (!mismatch) {
+                            continue;
+                        }
+
+                        int pY = (int) rectMaxY - 1;
+
+                        int totalCount = alignmentCounts.getTotalCount(pos);
+                        double tmp = range.isLog() ? Math.log10(totalCount + 1) / maxRange : totalCount / maxRange;
+                        int height = (int) (tmp * rectHeight);
+
+                        height = Math.min(height, rect.height - 1);
+
+                        if (dX > 3) {
+                            dX--; // Create a little space between bars when there is room.
+                        }
+
+                        if (height > 0) {
                             if (bisulfiteMode) {
-                                mismatch = (bc != null && (bc.methylatedCount + bc.unmethylatedCount) > 0);
+                                if (bc != null) {
+                                    drawBarBisulfite(context, pos, rect, totalCount, maxRange,
+                                            pY, pX, dX, bc, range.isLog());
+                                }
                             } else {
-                                byte ref = refBases[refIdx];
-                                mismatch = alignmentCounts.isMismatch(pos, ref, context.getChr(), snpThreshold);
+                                drawBar(context, pos, rect, totalCount, maxRange,
+                                        pY, pX, dX, alignmentCounts, range.isLog());
                             }
                         }
+                        lastpX = pX + dX;
+
                     }
-
-                    if (!mismatch) {
-                        continue;
-                    }
-
-                    int pY = (int) rectMaxY - 1;
-
-                    int totalCount = alignmentCounts.getTotalCount(pos);
-                    double tmp = range.isLog() ? Math.log10(totalCount + 1) / maxRange : totalCount / maxRange;
-                    int height = (int) (tmp * rectHeight);
-
-                    height = Math.min(height, rect.height - 1);
-
-                    if (dX > 3) {
-                        dX--; // Create a little space between bars when there is room.
-                    }
-
-                    if (height > 0) {
-                        if (bisulfiteMode) {
-                            if (bc != null) {
-                                drawBarBisulfite(context, pos, rect, totalCount, maxRange,
-                                        pY, pX, dX, bc, range.isLog());
-                            }
-                        } else {
-                            drawBar(context, pos, rect, totalCount, maxRange,
-                                    pY, pX, dX, alignmentCounts, range.isLog());
-                        }
-                    }
-                    lastpX = pX + dX;
-
                 }
             }
-            //}
-
         }
     }
 
@@ -677,36 +769,22 @@ public class CoverageTrack extends AbstractTrack {
     @Override
     public IGVPopupMenu getPopupMenu(TrackClickEvent te) {
 
-        IGVPopupMenu popupMenu = new IGVPopupMenu();
-
-        JLabel popupTitle = new JLabel("  " + getName(), JLabel.CENTER);
-
-        Font newFont = popupMenu.getFont().deriveFont(Font.BOLD, 12);
-        popupTitle.setFont(newFont);
-        if (popupTitle != null) {
-            popupMenu.add(popupTitle);
-        }
-
-        popupMenu.addSeparator();
-
-        ArrayList<Track> tmp = new ArrayList();
+        Collection<Track> tmp = new ArrayList<Track>();
         tmp.add(this);
 
-        popupMenu.add(TrackMenuUtils.getChangeTrackHeightItem(tmp));
-        popupMenu.add(TrackMenuUtils.getTrackRenameItem(tmp));
-        addCopyDetailsItem(popupMenu, te);
+        IGVPopupMenu popupMenu = TrackMenuUtils.getPopupMenu(tmp, getName(), te);
 
-        addAutoscaleItem(popupMenu, te.getFrame());
-        addLogScaleItem(popupMenu);
-        dataRangeItem = addDataRangeItem(IGV.getMainFrame(), popupMenu, tmp);
-
+        popupMenu.addSeparator();
         this.addSnpTresholdItem(popupMenu);
 
         popupMenu.addSeparator();
         addLoadCoverageDataItem(popupMenu);
-        popupMenu.addSeparator();
 
-        popupMenu.add(TrackMenuUtils.getRemoveMenuItem(tmp));
+        popupMenu.addSeparator();
+        addCopyDetailsItem(popupMenu, te);
+
+        popupMenu.addSeparator();
+        addShowItems(popupMenu);
 
         return popupMenu;
     }
@@ -715,7 +793,7 @@ public class CoverageTrack extends AbstractTrack {
         JMenuItem copyDetails = new JMenuItem("Copy Details to Clipboard");
         copyDetails.setEnabled(false);
         if (te.getFrame() != null) {
-            final String details = getValueStringAt(te.getFrame().getChrName(), te.getChromosomePosition(), te.getMouseEvent().getY(), te.getFrame());
+            final String details = getValueStringAt(te.getFrame().getChrName(), te.getChromosomePosition(), te.getMouseEvent().getX(), te.getMouseEvent().getY(), te.getFrame());
             copyDetails.addActionListener(new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
@@ -793,9 +871,62 @@ public class CoverageTrack extends AbstractTrack {
         return maxValItem;
     }
 
+    public void addShowItems(JPopupMenu menu) {
+
+        if (alignmentTrack != null) {
+            final JMenuItem alignmentItem = new JCheckBoxMenuItem("Show Alignment Track");
+            alignmentItem.setSelected(alignmentTrack.isVisible());
+            alignmentItem.setEnabled(!alignmentTrack.isRemoved());
+            alignmentItem.addActionListener(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    alignmentTrack.onAlignmentTrackEvent(new AlignmentTrackEvent(CoverageTrack.this, AlignmentTrackEvent.Type.VISIBLE, alignmentItem.isSelected()));
+                    if (alignmentItem.isSelected()) {
+                        alignmentTrack.onAlignmentTrackEvent(new AlignmentTrackEvent(CoverageTrack.this, AlignmentTrackEvent.Type.RELOAD));
+                    }
+                }
+            });
+            menu.add(alignmentItem);
+
+            final SpliceJunctionTrack spliceJunctionTrack = alignmentTrack.getSpliceJunctionTrack();
+            if (spliceJunctionTrack != null) {
+                final JMenuItem junctionItem = new JCheckBoxMenuItem("Show Splice Junction Track");
+                junctionItem.setSelected(spliceJunctionTrack.isVisible());
+                junctionItem.setEnabled(!spliceJunctionTrack.isRemoved());
+                junctionItem.addActionListener(new ActionListener() {
+                    @Override
+                    public void actionPerformed(ActionEvent e) {
+                        alignmentTrack.onAlignmentTrackEvent(new AlignmentTrackEvent(CoverageTrack.this, AlignmentTrackEvent.Type.SPLICE_JUNCTION, junctionItem.isSelected()));
+                        IGV.getInstance().getMainPanel().revalidate();
+                    }
+                });
+
+                menu.add(junctionItem);
+            }
+
+            final JMenuItem coverageItem = new JMenuItem("Hide Track");
+            coverageItem.setEnabled(!isRemoved());
+            coverageItem.addActionListener(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    UIUtilities.invokeOnEventThread(new Runnable() {
+
+                        public void run() {
+                            setVisible(false);
+                            IGV.getInstance().getMainPanel().revalidate();
+
+                        }
+                    });
+                }
+            });
+            menu.add(coverageItem);
+        }
+    }
+
+
     public void addLoadCoverageDataItem(JPopupMenu menu) {
         // Change track height by attribute
-        final JMenuItem item = new JCheckBoxMenuItem("Load coverage data...");
+        final JMenuItem item = new JCheckBoxMenuItem("Load pre-computed coverage data...");
         item.addActionListener(new ActionListener() {
 
             public void actionPerformed(ActionEvent e) {
@@ -822,51 +953,11 @@ public class CoverageTrack extends AbstractTrack {
             }
         });
 
+        item.setEnabled(dataSource == null);
         menu.add(item);
 
     }
 
-    public void addAutoscaleItem(JPopupMenu menu,final ReferenceFrame frame) {
-        // Change track height by attribute
-        autoscaleItem = new JCheckBoxMenuItem("Autoscale");
-        autoscaleItem.setSelected(autoScale);
-        autoscaleItem.addActionListener(new ActionListener() {
-
-            public void actionPerformed(ActionEvent e) {
-
-                autoScale = autoscaleItem.isSelected();
-                dataRangeItem.setEnabled(!autoScale);
-                if (autoScale) {
-                    rescale(frame);
-                }
-                IGV.getInstance().repaintDataPanels();
-
-            }
-        });
-
-        menu.add(autoscaleItem);
-    }
-
-    public void addLogScaleItem(JPopupMenu menu) {
-        // Change track height by attribute
-        final DataRange dataRange = getDataRange();
-        final JCheckBoxMenuItem logScaleItem = new JCheckBoxMenuItem("Log scale");
-        final boolean logScale = dataRange.getType() == DataRange.Type.LOG;
-        logScaleItem.setSelected(logScale);
-        logScaleItem.addActionListener(new ActionListener() {
-
-            public void actionPerformed(ActionEvent e) {
-
-                DataRange.Type scaleType = logScaleItem.isSelected() ?
-                        DataRange.Type.LOG :
-                        DataRange.Type.LINEAR;
-                dataRange.setType(scaleType);
-                IGV.getInstance().repaintDataPanels();
-            }
-        });
-
-        menu.add(logScaleItem);
-    }
 
     @SubtlyImportant
     private static CoverageTrack getNextTrack() {

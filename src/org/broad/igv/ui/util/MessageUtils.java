@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 /*
@@ -58,7 +72,7 @@ public class MessageUtils {
     public static synchronized void showMessage(Level level, String message) {
 
         log.log(level, message);
-        boolean showDialog = !(Globals.isHeadless() || Globals.isSuppressMessages() || Globals.isTesting());
+        boolean showDialog = !(Globals.isHeadless() || Globals.isSuppressMessages() || Globals.isTesting() || Globals.isBatch());
         if (showDialog) {
             // Always use HTML for message displays, but first remove any embedded <html> tags.
             message = "<html>" + message.replaceAll("<html>", "");
@@ -75,7 +89,7 @@ public class MessageUtils {
 
             //Really long messages should be scrollable
             if(message.length() > 200){
-                Dimension size = new Dimension(1000, content.getHeight());
+                Dimension size = new Dimension(1000, content.getHeight() + 100);
                 content.setPreferredSize(size);
                 JScrollPane pane = new JScrollPane(content);
                 dispMessage = pane;
@@ -95,7 +109,11 @@ public class MessageUtils {
     public static synchronized boolean confirm(final String message) {
         if(Globals.isHeadless()){
             log.error("Attempted to confirm while running headless with the following message:\n" + message);
-            return false;
+            return true;
+        }
+
+        if(Globals.isBatch()) {
+            return true;
         }
 
         final Frame parent = IGV.hasInstance() ? IGV.getMainFrame() : null;
@@ -111,6 +129,10 @@ public class MessageUtils {
      */
     public static synchronized boolean confirm(final Component component, final String message) {
 
+
+        if(Globals.isHeadless() || Globals.isBatch()) {
+            return true;
+        }
 
         if (SwingUtilities.isEventDispatchThread()) {
             int opt = JOptionPane.showConfirmDialog(component, message, "Confirm", JOptionPane.YES_NO_OPTION);

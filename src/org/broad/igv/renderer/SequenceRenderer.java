@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 /*
@@ -184,10 +198,7 @@ public class SequenceRenderer {
                 int dY = (showColorSpace ? hCS : untranslatedSequenceRect.height) - 4;
                 int dX = (int) (1.0 / locScale);
                 // Create a graphics to use
-                Graphics2D g = (Graphics2D) context.getGraphics().create();
-                if (PreferenceManager.getInstance().getAsBoolean(PreferenceManager.ENABLE_ANTIALISING)) {
-                    g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-                }
+                Graphics2D g = context.getGraphics2D("SEQUENCE");
 
                 //dhmay adding check for adequate track height
                 int fontSize = Math.min(untranslatedSequenceRect.height, Math.min(dX, 12));
@@ -471,10 +482,8 @@ public class SequenceRenderer {
             double locScale = context.getScale();
             double origin = context.getOrigin();
 
-            Graphics2D fontGraphics = (Graphics2D) context.getGraphic2DForColor(AA_FONT_COLOR).create();
-            if (PreferenceManager.getInstance().getAsBoolean(PreferenceManager.ENABLE_ANTIALISING)) {
-                fontGraphics.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-            }
+            Graphics2D fontGraphics = context.getGraphics2D("AA_FONT");
+            fontGraphics.setColor(AA_FONT_COLOR);
 
             //The start location of the first codon that overlaps this region
             int readingFrameOfFullSeq = start % 3;
@@ -483,11 +492,7 @@ public class SequenceRenderer {
                 indexOfFirstCodonStart += 3;
 
             if (seq != null && seq.length > 0) {
-                Graphics2D g = (Graphics2D) context.getGraphics().create();
-                if (PreferenceManager.getInstance().getAsBoolean(PreferenceManager.ENABLE_ANTIALISING)) {
-                    g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-                }
-
+                Graphics2D g = context.getGraphics2D("TRANSLATION");
                 String nucSequence = new String(seq, indexOfFirstCodonStart, seq.length - indexOfFirstCodonStart);
                 AminoAcidSequence aaSequence = AminoAcidManager.getInstance().
                         getAminoAcidSequence(strand, start + indexOfFirstCodonStart, nucSequence);

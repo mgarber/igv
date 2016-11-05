@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 /*
@@ -18,14 +32,16 @@ package org.broad.igv.sam;
 
 import htsjdk.samtools.util.CloseableIterator;
 import org.broad.igv.Globals;
-import org.broad.igv.sam.reader.BAMFileReader;
+import org.broad.igv.feature.genome.GenomeManager;
+import org.broad.igv.sam.reader.BAMReader;
 import org.broad.igv.sam.reader.SAMReader;
+import org.broad.igv.util.ResourceLocator;
 import org.broad.igv.util.TestUtils;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.io.File;
+import java.util.List;
 
 import static junit.framework.Assert.assertEquals;
 import static junit.framework.Assert.assertTrue;
@@ -58,7 +74,7 @@ public class BAMFileReaderTest {
         int start = end / 5;
         int stopafter = 10;
         int counter = 0;
-        BAMFileReader bamreader = new BAMFileReader(new File(bamfile));
+        BAMReader bamreader = new BAMReader(new ResourceLocator(bamfile), true);
         CloseableIterator<PicardAlignment> bamiter = bamreader.query(chr, start, end, true);
         while (bamiter.hasNext()) {
             Alignment bamrecord = bamiter.next();
@@ -76,8 +92,6 @@ public class BAMFileReaderTest {
             closeSucceeded = true;
         }
         assertTrue(closeSucceeded);
-
-
     }
 
     /**
@@ -92,7 +106,7 @@ public class BAMFileReaderTest {
         int end = 300000000;
         int start = end / 5;
 
-        BAMFileReader bamreader = new BAMFileReader(new File(bamfile));
+        BAMReader bamreader = new BAMReader(new ResourceLocator(bamfile), true);
         SAMReader samreader = new SAMReader(samfile);
         CloseableIterator<PicardAlignment> bamiter = bamreader.query(chr, start, end, true);
         CloseableIterator<PicardAlignment> samiter = samreader.iterator();
@@ -109,6 +123,90 @@ public class BAMFileReaderTest {
         assertTrue("No data retrieved", count > 0);
         System.out.println("Retrieved " + count + " rows");
 
+    }
+
+    @Test
+    public void testIterateLocalCraiCram() throws Exception {
+
+        String cramFile = TestUtils.DATA_DIR + "cram/cram_with_crai_index.cram";
+        GenomeManager.getInstance().loadGenome(TestUtils.DATA_DIR + "cram/hg19mini.fasta", null);
+
+        BAMReader reader = new BAMReader(new ResourceLocator(cramFile), true);
+
+        List<String> seqNames = reader.getSequenceNames();
+        assertEquals(4, seqNames.size());
+
+
+        CloseableIterator<PicardAlignment> iter = reader.iterator();
+        int counter = count(iter);
+        assertEquals(11, counter);
+
+    }
+
+    @Test
+    public void testQueryLocalCraiCram() throws Exception {
+
+        String cramFile = TestUtils.DATA_DIR + "cram/cram_with_crai_index.cram";
+        GenomeManager.getInstance().loadGenome(TestUtils.DATA_DIR + "cram/hg19mini.fasta", null);
+
+        BAMReader reader = new BAMReader(new ResourceLocator(cramFile), true);
+
+        CloseableIterator<PicardAlignment> iter = reader.query("2", 500, 600, false);
+        int counter = count(iter);
+        assertEquals(2, counter);
+    }
+
+
+    @Test
+    public void testQueryLocalBaiCram() throws Exception {
+
+        String cramFile = TestUtils.DATA_DIR + "cram/cram_with_bai_index.cram";
+        GenomeManager.getInstance().loadGenome(TestUtils.DATA_DIR + "cram/hg19mini.fasta", null);
+
+        BAMReader reader = new BAMReader(new ResourceLocator(cramFile), true);
+
+        CloseableIterator<PicardAlignment> iter = reader.query("2", 500, 600, false);
+        int counter = count(iter);
+        assertEquals(2, counter);
+    }
+
+
+
+    @Test
+    public void testRemoteCraiCram() throws Exception {
+
+        String cramFile = "https://s3.amazonaws.com/igv.broadinstitute.org/test/cram/cram_with_crai_index.cram";
+        GenomeManager.getInstance().loadGenome(TestUtils.DATA_DIR + "cram/hg19mini.fasta", null);
+
+        BAMReader reader = new BAMReader(new ResourceLocator(cramFile), true);
+
+        CloseableIterator<PicardAlignment> iter = reader.query("2", 500, 600, false);
+        int counter = count(iter);
+        assertEquals(2, counter);
+    }
+
+
+    @Test
+    public void testRemoteBaiCram() throws Exception {
+
+        String cramFile = TestUtils.DATA_DIR + "cram/cram_with_bai_index.cram";
+        GenomeManager.getInstance().loadGenome(TestUtils.DATA_DIR + "cram/hg19mini.fasta", null);
+
+        BAMReader reader = new BAMReader(new ResourceLocator(cramFile), true);
+
+        CloseableIterator<PicardAlignment> iter = reader.query("2", 500, 600, false);
+        int counter = count(iter);
+        assertEquals(2, counter);
+    }
+
+
+    public int count(CloseableIterator<PicardAlignment> iter) {
+        int counter = 0;
+        while (iter.hasNext()) {
+            iter.next();
+            counter++;
+        }
+        return counter;
     }
 
 }

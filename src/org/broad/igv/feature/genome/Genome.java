@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 
@@ -21,12 +35,10 @@
 package org.broad.igv.feature.genome;
 
 import org.apache.log4j.Logger;
-import org.broad.igv.DirectoryManager;
 import org.broad.igv.Globals;
 import org.broad.igv.feature.Chromosome;
 import org.broad.igv.feature.Cytoband;
 import org.broad.igv.track.FeatureTrack;
-import org.broad.igv.ui.util.MessageUtils;
 
 import java.io.*;
 import java.util.*;
@@ -52,6 +64,7 @@ public class Genome {
     private Sequence sequence;
     private FeatureTrack geneTrack;
     private String species;
+    private String ucscID;
 
     /**
      * @param id
@@ -65,6 +78,7 @@ public class Genome {
         this.chrAliasTable = new HashMap<String, String>();
         this.sequence = sequence;
         chromosomeNames = sequence.getChromosomeNames();
+        this.ucscID = ucsdIDMap.containsKey(id) ? ucsdIDMap.get(id) : id;
 
         List<Chromosome> tmpChromos = new ArrayList<Chromosome>(chromosomeNames.size());
         int maxLength = -1;
@@ -86,6 +100,7 @@ public class Genome {
             ChromosomeComparator.sortChromosomeList(tmpChromos, maxLength / 10, chromosomeMap);
             chromosomeNames = new ArrayList<String>(chromosomeMap.keySet());
         }
+
 
         initializeChromosomeAliases();
     }
@@ -114,7 +129,7 @@ public class Genome {
     }
 
 
-    public String getChromosomeAlias(String str) {
+    public String getCanonicalChrName(String str) {
         if (str == null) {
             return str;
         } else {
@@ -140,7 +155,7 @@ public class Genome {
      */
     public void addChrAliases(Collection<Collection<String>> synonymsList) {
 
-        if(chrAliasTable == null) chrAliasTable = new HashMap<String, String>();
+        if (chrAliasTable == null) chrAliasTable = new HashMap<String, String>();
 
         // Convert names to a set for fast "contains" testing.
         Set<String> chrNameSet = new HashSet<String>(chromosomeNames);
@@ -189,7 +204,7 @@ public class Genome {
 
                 // Also strip version number out, if present
                 int dotIndex = alias.lastIndexOf('.');
-                if(dotIndex > 0) {
+                if (dotIndex > 0) {
                     alias = alias.substring(0, dotIndex);
                     autoAliases.put(alias, name);
                 }
@@ -247,6 +262,7 @@ public class Genome {
         }
         return autoAliases;
     }
+
     /**
      * Extract the user friendly name from an NCBI accession
      * example: gi|125745044|ref|NC_002229.3|  =>  NC_002229.3
@@ -273,7 +289,7 @@ public class Genome {
 
 
     public Chromosome getChromosome(String chrName) {
-        return chromosomeMap.get(getChromosomeAlias(chrName));
+        return chromosomeMap.get(getCanonicalChrName(chrName));
     }
 
 
@@ -352,24 +368,24 @@ public class Genome {
         return new ChromosomeCoordinate(c, bp);
     }
 
-    /**
-     * Method description
-     *
-     * @return
-     */
+
     public String getId() {
         return id;
     }
 
+    public String getUCSCId() {
+        return ucscID == null ? id : ucscID;
+    }
+
     public String getSpecies() {
         if (species == null) {
-            species = Genome.getSpeciesForID(id);
+            species = Genome.getSpeciesForID(getUCSCId());
         }
         return species;
     }
 
     public String getNextChrName(String chr) {
-        List<String> chrList = getLongChromosomeNames();
+        List<String> chrList = getAllChromosomeNames();
         for (int i = 0; i < chrList.size() - 1; i++) {
             if (chrList.get(i).equals(chr)) {
                 return chrList.get(i + 1);
@@ -379,7 +395,7 @@ public class Genome {
     }
 
     public String getPrevChrName(String chr) {
-        List<String> chrList = getLongChromosomeNames();
+        List<String> chrList = getAllChromosomeNames();
         for (int i = chrList.size() - 1; i > 0; i--) {
             if (chrList.get(i).equals(chr)) {
                 return chrList.get(i - 1);
@@ -508,8 +524,7 @@ public class Genome {
     }
 
 
-    // TODO A hack (
-    // obviously),  we need to record a species in the genome definitions
+    // TODO A hack (obviously),  we need to record a species in the genome definitions
     private static Map<String, String> ucscSpeciesMap;
 
     private static synchronized String getSpeciesForID(String id) {
@@ -525,7 +540,7 @@ public class Genome {
                 String nextLine;
                 while ((nextLine = br.readLine()) != null) {
                     if (nextLine.startsWith("#")) continue;
-                    String[] tokens = Globals.whitespacePattern.split(nextLine);
+                    String[] tokens = Globals.tabPattern.split(nextLine);
                     if (tokens.length == 2) {
                         ucscSpeciesMap.put(tokens[0], tokens[1]);
                     } else {
@@ -550,6 +565,16 @@ public class Genome {
             }
         }
         return null;
+    }
+
+    // Map some common IGV genome IDs to UCSC equivalents.  Primarily for BLAT usage
+    private static Map<String, String> ucsdIDMap;
+
+    static {
+        ucsdIDMap = new HashMap<>();
+        ucsdIDMap.put("1kg_ref", "hg18");
+        ucsdIDMap.put("1kg_v37", "hg19");
+        ucsdIDMap.put("b37", "hg19");
     }
 
 

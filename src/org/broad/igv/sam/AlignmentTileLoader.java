@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.sam;
@@ -16,7 +30,6 @@ import htsjdk.samtools.util.CloseableIterator;
 import org.apache.log4j.Logger;
 import org.broad.igv.Globals;
 import org.broad.igv.PreferenceManager;
-import org.broad.igv.feature.SpliceJunctionFeature;
 import org.broad.igv.sam.reader.AlignmentReader;
 import org.broad.igv.sam.reader.ReadGroupFilter;
 import org.broad.igv.ui.IGV;
@@ -48,6 +61,9 @@ public class AlignmentTileLoader {
     private AlignmentReader reader;
     private boolean cancel = false;
     private boolean pairedEnd = false;
+    private boolean tenX = false;
+    private boolean phased = false;
+    private boolean moleculo = false;
 
     static void cancelReaders() {
         for (WeakReference<AlignmentTileLoader> readerRef : activeLoaders) {
@@ -63,6 +79,10 @@ public class AlignmentTileLoader {
 
     public AlignmentTileLoader(AlignmentReader reader) {
         this.reader = reader;
+
+        Set<String> platforms = this.reader.getPlatforms();
+        moleculo = platforms != null && platforms.contains("MOLECULO");
+
         activeLoaders.add(new WeakReference<AlignmentTileLoader>(this));
     }
 
@@ -74,7 +94,7 @@ public class AlignmentTileLoader {
         return this.reader.getFileHeader();
     }
 
-    public List<String> getSequenceNames() {
+    public List<String> getSequenceNames() throws IOException {
         return reader.getSequenceNames();
     }
 
@@ -87,20 +107,15 @@ public class AlignmentTileLoader {
     }
 
 
-    AlignmentTile loadTile(String chr, int start, int end,
+    AlignmentTile loadTile(String chr,
+                           int start,
+                           int end,
                            SpliceJunctionHelper spliceJunctionHelper,
                            AlignmentDataManager.DownsampleOptions downsampleOptions,
                            Map<String, PEStats> peStats,
                            AlignmentTrack.BisulfiteContext bisulfiteContext,
+                           boolean showAlignments,
                            ProgressMonitor monitor) {
-
-        AlignmentTile t = new AlignmentTile(start, end, spliceJunctionHelper, downsampleOptions, bisulfiteContext);
-
-
-        //assert (tiles.size() > 0);
-        if (corruptIndex) {
-            return t;
-        }
 
         final PreferenceManager prefMgr = PreferenceManager.getInstance();
         boolean filterFailedReads = prefMgr.getAsBoolean(PreferenceManager.SAM_FILTER_FAILED_READS);
@@ -109,6 +124,17 @@ public class AlignmentTileLoader {
         ReadGroupFilter filter = ReadGroupFilter.getFilter();
         boolean showDuplicates = prefMgr.getAsBoolean(PreferenceManager.SAM_SHOW_DUPLICATES);
         int qualityThreshold = prefMgr.getAsInt(PreferenceManager.SAM_QUALITY_THRESHOLD);
+
+        boolean reducedMemory = prefMgr.getAsBoolean(PreferenceManager.SAM_REDUCED_MEMORY_MODE);
+
+        AlignmentTile t = new AlignmentTile(start, end, spliceJunctionHelper, downsampleOptions, bisulfiteContext, showAlignments, reducedMemory);
+
+
+        //assert (tiles.size() > 0);
+        if (corruptIndex) {
+            return t;
+        }
+
 
         CloseableIterator<Alignment> iter = null;
 
@@ -162,6 +188,13 @@ public class AlignmentTileLoader {
                     }
                 }
 
+                // TODO -- this is not reliable tests for TenX.  Other platforms might use BX
+                if (!tenX && record.getAttribute("BX") != null) {
+                    tenX = true;
+                }
+                if (tenX && !phased && record.getAttribute("HP") != null) {
+                    phased = true;
+                }
 
                 if (!record.isMapped() || (!showDuplicates && record.isDuplicate()) ||
                         (filterFailedReads && record.isVendorFailedRead()) ||
@@ -172,7 +205,7 @@ public class AlignmentTileLoader {
                     continue;
                 }
 
-                t.addRecord(record);
+                t.addRecord(record, reducedMemory);
 
                 alignmentCount++;
                 int interval = Globals.isTesting() ? 100000 : 1000;
@@ -212,9 +245,11 @@ public class AlignmentTileLoader {
                 double minPercentile = prefMgr.getAsFloat(PreferenceManager.SAM_MIN_INSERT_SIZE_PERCENTILE);
                 double maxPercentile = prefMgr.getAsFloat(PreferenceManager.SAM_MAX_INSERT_SIZE_PERCENTILE);
                 for (PEStats stats : peStats.values()) {
-                    stats.compute(minPercentile, maxPercentile);
+                    stats.computeInsertSize(minPercentile, maxPercentile);
+                    stats.computeExpectedOrientation();
                 }
             }
+
 
             // Clean up any remaining unmapped mate sequences
             for (String mappedMateName : mappedMates.getKeys()) {
@@ -282,8 +317,23 @@ public class AlignmentTileLoader {
         return pairedEnd;
     }
 
+    /**
+     * Does this file contain 10X barcoded data?  Assume not until proven otherwise.
+     */
+    public boolean isTenX() {
+        return tenX;
+    }
+
+    public boolean isPhased() {
+        return phased;
+    }
+
     public Set<String> getPlatforms() {
         return reader.getPlatforms();
+    }
+
+    public boolean isMoleculo() {
+        return moleculo;
     }
 
     /**
@@ -303,6 +353,7 @@ public class AlignmentTileLoader {
         private static final Random RAND = new Random();
 
         private boolean downsample;
+        private boolean showAlignments;
         private int samplingWindowSize;
         private int samplingDepth;
 
@@ -320,24 +371,35 @@ public class AlignmentTileLoader {
 
         private int downsampledCount = 0;
         private int offset = 0;
+        private int indelLimit;
 
-        AlignmentTile(int start, int end,
+        AlignmentTile(int start,
+                      int end,
                       SpliceJunctionHelper spliceJunctionHelper,
                       AlignmentDataManager.DownsampleOptions downsampleOptions,
-                      AlignmentTrack.BisulfiteContext bisulfiteContext) {
+                      AlignmentTrack.BisulfiteContext bisulfiteContext,
+                      boolean showAlignments,
+                      boolean reducedMemory) {
             this.start = start;
             this.end = end;
             this.downsampledIntervals = new ArrayList<DownsampledInterval>();
+
+            this.indelLimit = PreferenceManager.getInstance().getAsInt(PreferenceManager.SAM_SMALL_INDEL_BP_THRESHOLD);
+            this.showAlignments = showAlignments;
+
             long seed = System.currentTimeMillis();
             //System.out.println("seed: " + seed);
             RAND.setSeed(seed);
 
             // Use a sparse array for large regions  (> 10 mb)
-            if ((end - start) > 10000000) {
+            if (reducedMemory) {
+                this.counts = new ReducedMemoryAlignment.ReducedMemoryAlignmentCounts(start, end, 25);
+            } else if ((end - start) > 10000000) {
                 this.counts = new SparseAlignmentCounts(start, end, bisulfiteContext);
             } else {
                 this.counts = new DenseAlignmentCounts(start, end, bisulfiteContext);
             }
+
 
             // Set the max depth, and the max depth of the sampling bucket.
             if (downsampleOptions == null) {
@@ -369,10 +431,14 @@ public class AlignmentTileLoader {
 
         /**
          * Add an alignment record to this tile.  This record is not necessarily retained after down-sampling.
-         *
-         * @param alignment
+         * <p/>
+         * // * @param alignment
          */
-        public void addRecord(Alignment alignment) {
+        public void addRecord(Alignment alignment, boolean reducedMemory) {
+
+            if (reducedMemory) {
+                alignment = new ReducedMemoryAlignment(alignment, this.indelLimit);
+            }
 
             counts.incCounts(alignment);
 
@@ -380,17 +446,19 @@ public class AlignmentTileLoader {
                 spliceJunctionHelper.addAlignment(alignment);
             }
 
-            if (downsample) {
-                final int alignmentStart = alignment.getAlignmentStart();
-                int currentSamplingBucketEnd = currentSamplingWindowStart + samplingWindowSize;
-                if (currentSamplingWindowStart < 0 || alignmentStart >= currentSamplingBucketEnd) {
-                    setCurrentSamplingBucket(alignmentStart);
+            if (showAlignments) {
+                if (downsample) {
+                    final int alignmentStart = alignment.getAlignmentStart();
+                    int currentSamplingBucketEnd = currentSamplingWindowStart + samplingWindowSize;
+                    if (currentSamplingWindowStart < 0 || alignmentStart >= currentSamplingBucketEnd) {
+                        setCurrentSamplingBucket(alignmentStart);
+                    }
+
+                    attemptAddRecordDownsampled(alignment);
+
+                } else {
+                    alignments.add(alignment);
                 }
-
-                attemptAddRecordDownsampled(alignment);
-
-            } else {
-                alignments.add(alignment);
             }
 
             alignment.finish();
@@ -526,7 +594,7 @@ public class AlignmentTileLoader {
 
         public List<Alignment> getAlignments() {
 
-            if(alignments == null) {
+            if (alignments == null) {
                 finish();   // TODO -- I'm not sure this should ever happen
             }
             return alignments;
@@ -552,7 +620,7 @@ public class AlignmentTileLoader {
 
         private void finalizeSpliceJunctions() {
             if (spliceJunctionHelper != null) {
-           //     spliceJunctionHelper.finish();
+                //     spliceJunctionHelper.finish();
             }
         }
 

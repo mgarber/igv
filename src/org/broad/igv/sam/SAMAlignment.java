@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 /*
@@ -24,9 +38,10 @@ import org.broad.igv.feature.genome.GenomeManager;
 import org.broad.igv.track.WindowFunction;
 
 import java.awt.*;
-import java.text.DecimalFormat;
 import java.util.*;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * @author jrobinso
@@ -47,6 +62,7 @@ public abstract class SAMAlignment implements Alignment {
     public static final char HARD_CLIP = 'H';
     public static final char PADDING = 'P';
     public static final char ZERO_GAP = 'O';
+    public static final char UNKNOWN = 0;
     public static final String REDUCE_READS_TAG = "RR";
 
     /**
@@ -71,6 +87,8 @@ public abstract class SAMAlignment implements Alignment {
             'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N'
     };
     private static final String FLOW_SIGNAL_TAG = "ZF";
+    protected int alignmentStart;
+    protected int alignmentEnd;
 
 
     String chr;
@@ -78,15 +96,11 @@ public abstract class SAMAlignment implements Alignment {
     protected int end;    // ditto
     protected Color color = null;
 
-    protected String readGroup;
-    protected String library;
-    protected String sample;
-
     ReadMate mate;
-    AlignmentBlock[] alignmentBlocks;
-    AlignmentBlock[] insertions;
+    AlignmentBlockImpl[] alignmentBlocks;
+    AlignmentBlockImpl[] insertions;
+    List<Gap> gaps;
     char[] gapTypes;
-    private static final DecimalFormat DECIMAL_FORMAT = new DecimalFormat();
 
     protected String mateSequence = null;
     protected String pairOrientation = "";
@@ -134,7 +148,7 @@ public abstract class SAMAlignment implements Alignment {
         return alignmentBlocks;
     }
 
-    public AlignmentBlock[] getInsertions() {
+    public AlignmentBlockImpl[] getInsertions() {
         return insertions;
     }
 
@@ -149,7 +163,7 @@ public abstract class SAMAlignment implements Alignment {
         for (AlignmentBlock block : this.alignmentBlocks) {
             if (block.contains(basePosition)) {
                 int offset = basePosition - block.getStart();
-                byte base = block.getBases()[offset];
+                byte base = block.getBase(offset);
                 return base;
             }
         }
@@ -229,8 +243,8 @@ public abstract class SAMAlignment implements Alignment {
                                          short[] flowSignals, String flowOrder, int flowOrderStart) {
 
         if (cigarString.equals("*")) {
-            alignmentBlocks = new AlignmentBlock[1];
-            alignmentBlocks[0] = new AlignmentBlock(getChr(), getStart(), readBases, readBaseQualities);
+            alignmentBlocks = new AlignmentBlockImpl[1];
+            alignmentBlocks[0] = new AlignmentBlockImpl(getStart(), readBases, readBaseQualities);
             return;
         }
 
@@ -244,6 +258,8 @@ public abstract class SAMAlignment implements Alignment {
         boolean firstOperator = true;
         int softClippedBaseCount = 0;
         int nGaps = 0;
+        int nRealGaps = 0;
+        char prevOp = 0;
         for (CigarOperator operator : operators) {
 
             char op = operator.operator;
@@ -253,8 +269,12 @@ public abstract class SAMAlignment implements Alignment {
             int nBases = operator.nBases;
             if (operatorIsMatch(showSoftClipped, op)) {
                 nBlocks++;
+                if (operatorIsMatch(showSoftClipped, prevOp)) {
+                    nGaps++;
+                }
             } else if (op == DELETION || op == SKIPPED_REGION) {
                 nGaps++;
+                nRealGaps++;
             } else if (op == INSERTION) {
                 nInsertions++;
                 nGaps++; // "virtual" gap, account for artificial block split @ insertion
@@ -267,13 +287,18 @@ public abstract class SAMAlignment implements Alignment {
             if (op != SOFT_CLIP) {
                 firstOperator = false;
             }
+
+            prevOp = op;
         }
 
 
-        alignmentBlocks = new AlignmentBlock[nBlocks];
-        insertions = new AlignmentBlock[nInsertions];
+        alignmentBlocks = new AlignmentBlockImpl[nBlocks];
+        insertions = new AlignmentBlockImpl[nInsertions];
         if (nGaps > 0) {
             gapTypes = new char[nGaps];
+        }
+        if (nRealGaps > 0) {
+            gaps = new ArrayList<Gap>();
         }
 
         // Adjust start to include soft clipped bases a
@@ -287,6 +312,7 @@ public abstract class SAMAlignment implements Alignment {
         int blockIdx = 0;
         int insertionIdx = 0;
         int gapIdx = 0;
+
         FlowSignalContextBuilder fBlockBuilder = null;
         if (null != flowSignals) {
             if (0 < readBases.length) {
@@ -294,7 +320,9 @@ public abstract class SAMAlignment implements Alignment {
             }
         }
 
-        for (CigarOperator op : operators) {
+        prevOp = 0;
+        for (int i = 0; i < operators.size(); i++) {
+            CigarOperator op = operators.get(i);
             try {
 
                 if (op.operator == HARD_CLIP) {
@@ -302,7 +330,7 @@ public abstract class SAMAlignment implements Alignment {
                 }
                 if (operatorIsMatch(showSoftClipped, op.operator)) {
 
-                    AlignmentBlock block = buildAlignmentBlock(fBlockBuilder, readBases, readBaseQualities,
+                    AlignmentBlockImpl block = buildAlignmentBlock(fBlockBuilder, readBases, readBaseQualities,
                             getChr(), blockStart, fromIdx, op.nBases, true);
 
                     if (op.operator == SOFT_CLIP) {
@@ -313,15 +341,33 @@ public abstract class SAMAlignment implements Alignment {
                     fromIdx += op.nBases;
                     blockStart += op.nBases;
 
+                    if (operatorIsMatch(showSoftClipped, prevOp)) {
+                        gapTypes[gapIdx++] = ZERO_GAP;
+                    }
 
-                } else if (op.operator == DELETION || op.operator == SKIPPED_REGION) {
+                } else if (op.operator == DELETION) {
+                    gaps.add(new Gap(blockStart, op.nBases, op.operator));
+                    blockStart += op.nBases;
+                    gapTypes[gapIdx++] = op.operator;
+                } else if (op.operator == SKIPPED_REGION) {
+
+                    // Need the "flanking" regions, i.e. size of blocks either side of splice
+                    int flankingLeft = 0;
+                    int flankingRight = 0;
+                    if (i > 0) {
+                        flankingLeft = operators.get(i - 1).nBases;
+                    }
+                    if (i < operators.size() - 1) {
+                        flankingRight = operators.get(i + 1).nBases;
+                    }
+                    gaps.add(new SpliceGap(blockStart, op.nBases, op.operator, flankingLeft, flankingRight));
                     blockStart += op.nBases;
                     gapTypes[gapIdx++] = op.operator;
                 } else if (op.operator == INSERTION) {
                     // This gap is between blocks split by insertion.   It is a zero
                     // length gap but must be accounted for.
                     gapTypes[gapIdx++] = ZERO_GAP;
-                    AlignmentBlock block = buildAlignmentBlock(fBlockBuilder, readBases, readBaseQualities,
+                    AlignmentBlockImpl block = buildAlignmentBlock(fBlockBuilder, readBases, readBaseQualities,
                             getChr(), blockStart, fromIdx, op.nBases, false);
 
                     insertions[insertionIdx++] = block;
@@ -334,6 +380,7 @@ public abstract class SAMAlignment implements Alignment {
             } catch (Exception e) {
                 log.error("Error processing CIGAR string", e);
             }
+            prevOp = op.operator;
         }
 
         // Check for soft clipping at end
@@ -359,7 +406,6 @@ public abstract class SAMAlignment implements Alignment {
         StringBuilder buffer = new StringBuilder(4);
 
         // Create list of cigar operators
-        boolean firstOperator = true;
         CigarOperator prevOp = null;
         for (int i = 0; i < cigarString.length(); i++) {
             char next = cigarString.charAt(i);
@@ -386,9 +432,9 @@ public abstract class SAMAlignment implements Alignment {
 
     }
 
-    private static AlignmentBlock buildAlignmentBlock(FlowSignalContextBuilder fBlockBuilder, byte[] readBases,
-                                                      byte[] readBaseQualities, String chr, int blockStart,
-                                                      int fromIdx, int nBases, boolean checkNBasesAvailable) {
+    private static AlignmentBlockImpl buildAlignmentBlock(FlowSignalContextBuilder fBlockBuilder, byte[] readBases,
+                                                          byte[] readBaseQualities, String chr, int blockStart,
+                                                          int fromIdx, int nBases, boolean checkNBasesAvailable) {
 
         byte[] blockBases = new byte[nBases];
         byte[] blockQualities = new byte[nBases];
@@ -416,12 +462,12 @@ public abstract class SAMAlignment implements Alignment {
             System.arraycopy(readBaseQualities, fromIdx, blockQualities, 0, nBases);
         }
 
-        AlignmentBlock block;
+        AlignmentBlockImpl block;
         if (fBlockBuilder != null) {
-            block = new AlignmentBlock(chr, blockStart, blockBases, blockQualities,
+            block = new AlignmentBlockImpl(blockStart, blockBases, blockQualities,
                     fBlockBuilder.getFlowSignalContext(readBases, fromIdx, nBases));
         } else {
-            block = new AlignmentBlock(chr, blockStart, blockBases, blockQualities);
+            block = new AlignmentBlockImpl(blockStart, blockBases, blockQualities);
         }
 
         return block;
@@ -464,59 +510,31 @@ public abstract class SAMAlignment implements Alignment {
                 }
                 buf.append("<br>").append(spos);
                 buf.append("<br>");
-                // maybe also add flow order?                
+                // maybe also add flow order?
             }
         }
     }
 
-    public String getClipboardString(double location) {
-        return getValueStringImpl(location, false);
+    public String getClipboardString(double location, int mouseX) {
+        return getValueStringImpl(location, mouseX, false);
     }
 
 
-    public String getValueString(double position, WindowFunction windowFunction) {
-        return getValueStringImpl(position, true);
+    public String getValueString(double position, int mouseX, WindowFunction windowFunction) {
+        return getValueStringImpl(position, mouseX, true);
     }
 
-    private String getValueStringImpl(double position, boolean truncate) {
+    private String getValueStringImpl(double position, int mouseX, boolean truncate) {
 
+        int basePosition = (int) position;
         StringBuffer buf = new StringBuffer();
 
-        buf.append("Read name = " + getReadName() + "<br>");
-
-        String sample = getSample();
-        if (sample != null) {
-            buf.append("Sample = " + sample + "<br>");
-        }
-        String readGroup = getReadGroup();
-        if (sample != null) {
-            buf.append("Read group = " + readGroup + "<br>");
-        }
-
-        String cigarString = getCigarString();
-        if (cigarString.length() > 80) {
-            cigarString = cigarString.substring(0, 80) + "...";
-        }
-
-        buf.append("----------------------" + "<br>");
-        int basePosition = (int) position;
-        buf.append("Location = " + getChr() + ":" + DECIMAL_FORMAT.format(1 + (long) position) + "<br>");
-        buf.append("Alignment start = " + DECIMAL_FORMAT.format(getAlignmentStart() + 1) + " (" + (isNegativeStrand() ? "-" : "+") + ")<br>");
-        buf.append("Cigar = " + cigarString + "<br>");
-        buf.append("Mapped = " + (isMapped() ? "yes" : "no") + "<br>");
-        buf.append("Mapping quality = " + getMappingQuality() + "<br>");
-        buf.append("Secondary = " + (isPrimary() ? "no" : "yes") + "<br>");
-        buf.append("Supplementary = " + (isSupplementary() ? "yes" : "no") + "<br>");
-        buf.append("Duplicate = " + (isDuplicate() ? "yes" : "no") + "<br>");
-        buf.append("Failed QC = " + (isVendorFailedRead() ? "yes" : "no") + "<br>");
-        buf.append("----------------------<br>");
 
         // First check insertions.  Position is zero based, block coords 1 based
         if (this.insertions != null) {
             for (AlignmentBlock block : this.insertions) {
-                double insertionLeft = block.getStart() - .25;
-                double insertionRight = block.getStart() + .25;
-                if (position > insertionLeft && position < insertionRight) {
+
+                if (block.containsPixel(mouseX)) {
                     if (block.hasFlowSignals()) {
                         int offset;
                         buf = new StringBuffer();
@@ -532,34 +550,112 @@ public abstract class SAMAlignment implements Alignment {
                         buf.append("<br>");
                         for (offset = 0; offset < block.getLength(); offset++) {
                             byte base = block.getBase(offset);
-                            buf.append((char) base + ": ");
-                            bufAppendFlowSignals(block, buf, offset);
+                            if (base > 0) {
+                                buf.append((char) base + ": ");
+                                bufAppendFlowSignals(block, buf, offset);
+                            }
                         }
-                        buf.append("----------------------"); // NB: no <br> required
+                        //  buf.append("----------------------"); // NB: no <br> required
                         return buf.toString();
                     } else {
-                        return "Insertion: " + new String(block.getBases());
+
+                        byte[] bases = block.getBases();
+                        if (bases == null) {
+                            return "Insertion: " + block.getLength() + " bases";
+                        } else {
+                            if (bases.length < 50) {
+                                return "Insertion: " + new String(bases);
+                            } else {
+                                int len = bases.length;
+                                return "Insertion: " + new String(Arrays.copyOfRange(bases, 0, 25)) + "..." +
+                                        new String(Arrays.copyOfRange(bases, len - 25, len));
+                            }
+                        }
                     }
                 }
             }
         }
 
-        for (AlignmentBlock block : this.alignmentBlocks) {
-            if (block.contains(basePosition)) {
-                int offset = basePosition - block.getStart();
-                byte base = block.getBase(offset);
-                byte quality = block.getQuality(offset);
-                buf.append("Base = " + (char) base + "<br>");
-                buf.append("Base phred quality = " + quality + "<br>");
-                if (block.hasCounts()) {
-                    buf.append("Count = " + block.getCount(offset) + "<br>");
+        // Not over an insertion
+
+        buf.append("Read name = " + getReadName() + "<br>");
+
+        String sample = getSample();
+        if (sample != null) {
+            buf.append("Sample = " + sample + "<br>");
+        }
+        String library = getLibrary();
+        if (library != null) {
+            buf.append("Library = " + library + "<br>");
+        }
+        String readGroup = getReadGroup();
+        if (readGroup != null) {
+            buf.append("Read group = " + readGroup + "<br>");
+        }
+        buf.append("Read length = " + Globals.DECIMAL_FORMAT.format(getReadLength()) + "bp<br>");
+
+
+        String cigarString = getCigarString();
+        // Abbreviate long CIGAR strings.  Retain the start and end of the CIGAR, which show
+        // clipping; trim the middle.
+        int maxCigarStringLength = 60;
+        if (cigarString.length() > maxCigarStringLength) {
+            // Match only full <length><operator> pairs at the beginning and end of the string.
+            Matcher lMatcher = Pattern.compile("^(.{1," + Integer.toString(maxCigarStringLength / 2 - 1) + "}[A-Z])").matcher(cigarString);
+            Matcher rMatcher = Pattern.compile("[A-Z](.{1," + Integer.toString(maxCigarStringLength / 2) + "})$").matcher(cigarString);
+            cigarString = (lMatcher.find() ? lMatcher.group(1) : "") + "..." + (rMatcher.find() ? rMatcher.group(1) : "");
+        }
+
+
+        buf.append("----------------------" + "<br>");
+        buf.append("Mapping = " + (isPrimary() ? (isSupplementary() ? "Supplementary" : "Primary") : "Secondary") +
+                (isDuplicate() ? " Duplicate" : "") + (isVendorFailedRead() ? " Failed QC" : "") +
+                " @ MAPQ " + Globals.DECIMAL_FORMAT.format(getMappingQuality()) + "<br>");
+        buf.append("Reference span = " + getChr() + ":" + Globals.DECIMAL_FORMAT.format(getAlignmentStart() + 1) + "-" +
+                Globals.DECIMAL_FORMAT.format(getAlignmentEnd()) + " (" + (isNegativeStrand() ? "-" : "+") + ")" +
+                " = " + Globals.DECIMAL_FORMAT.format(getAlignmentEnd() - getAlignmentStart()) + "bp<br>");
+        buf.append("Cigar = " + cigarString + "<br>");
+        buf.append("Clipping = ");
+
+        // Identify the number of hard and soft clipped bases.
+        Matcher lclipMatcher = Pattern.compile("^(([0-9]+)H)?(([0-9]+)S)?").matcher(cigarString);
+        Matcher rclipMatcher = Pattern.compile("(([0-9]+)S)?(([0-9]+)H)?$").matcher(cigarString);
+        int lclipHard = 0, lclipSoft = 0, rclipHard = 0, rclipSoft = 0;
+        if (lclipMatcher.find()) {
+            lclipHard = lclipMatcher.group(2) == null ? 0 : Integer.parseInt(lclipMatcher.group(2), 10);
+            lclipSoft = lclipMatcher.group(4) == null ? 0 : Integer.parseInt(lclipMatcher.group(4), 10);
+        }
+        if (rclipMatcher.find()) {
+            rclipHard = rclipMatcher.group(4) == null ? 0 : Integer.parseInt(rclipMatcher.group(4), 10);
+            rclipSoft = rclipMatcher.group(2) == null ? 0 : Integer.parseInt(rclipMatcher.group(2), 10);
+        }
+
+        if (lclipHard + lclipSoft + rclipHard + rclipSoft == 0) {
+            buf.append("None");
+        } else {
+            if (lclipHard + lclipSoft > 0) {
+                buf.append("Left");
+                if (lclipHard > 0) {
+                    buf.append(" " + Globals.DECIMAL_FORMAT.format(lclipHard) + " hard");
                 }
-                // flow signals
-                if (block.hasFlowSignals()) {
-                    bufAppendFlowSignals(block, buf, offset);
+                if (lclipSoft > 0) {
+                    buf.append(" " + Globals.DECIMAL_FORMAT.format(lclipSoft) + " soft");
+                }
+            }
+            if (rclipHard + rclipSoft > 0) {
+                buf.append((lclipHard + lclipSoft > 0 ? "; " : "") + "Right");
+                if (rclipHard > 0) {
+                    buf.append(" " + Globals.DECIMAL_FORMAT.format(rclipHard) + " hard");
+                }
+                if (rclipSoft > 0) {
+                    buf.append(" " + Globals.DECIMAL_FORMAT.format(rclipSoft) + " soft");
                 }
             }
         }
+        buf.append("<br>");
+
+
+        Genome genome = GenomeManager.getInstance().getCurrentGenome();
 
         if (this.isPaired()) {
             buf.append("----------------------<br>");
@@ -582,6 +678,14 @@ public abstract class SAMAlignment implements Alignment {
             }
         }
 
+        Object suppAlignment = this.getAttribute("SA");
+        if (suppAlignment != null) {
+            buf.append("----------------------<br>");
+            buf.append(getSupplAlignmentString(suppAlignment.toString()));
+            buf.append("<br>");
+        }
+
+
         String attributeString = getAttributeString(truncate);
         if (attributeString != null && attributeString.length() > 0) {
             buf.append("----------------------");
@@ -592,6 +696,50 @@ public abstract class SAMAlignment implements Alignment {
         if (mateSequence != null) {
             buf.append("----------------------<br>");
             buf.append("Mate sequence: " + mateSequence);
+        }
+
+
+        // Specific base
+
+        for (AlignmentBlock block : this.alignmentBlocks) {
+            if (block.contains(basePosition)) {
+
+                buf.append("<hr>");
+                int offset = basePosition - block.getStart();
+                byte base = block.getBase(offset);
+
+                if (base == 0 && this.getReadSequence().equals("=") && !block.isSoftClipped() && genome != null) {
+                    base = genome.getReference(chr, basePosition);
+
+                }
+
+                byte quality = block.getQuality(offset);
+                buf.append("Location = " + getChr() + ":" + Globals.DECIMAL_FORMAT.format(1 + (long) position) + "<br>");
+                buf.append("Base = " + (char) base + " @ QV " + Globals.DECIMAL_FORMAT.format(quality) + "<br>");
+
+                // flow signals
+                if (block.hasFlowSignals()) {
+                    bufAppendFlowSignals(block, buf, offset);
+                }
+
+                break;
+            }
+        }
+
+        return buf.toString();
+    }
+
+
+    // chr21,26002386,-,11785S1115M,60,0;chr21,26001844,+,1115S111M1D41M1D394M11239S,60,4;
+
+    private String getSupplAlignmentString(String sa) {
+
+        StringBuffer buf = new StringBuffer();
+        buf.append("SupplementaryAlignments");
+        String[] records = Globals.semicolonPattern.split(sa);
+        for (String rec : records) {
+            SupplementaryAlignment a = new SupplementaryAlignment(rec);
+            buf.append("<br>" + a.printString());
         }
         return buf.toString();
     }
@@ -623,12 +771,6 @@ public abstract class SAMAlignment implements Alignment {
 
     abstract public int getAlignmentEnd();
 
-
-    public boolean isSmallInsert() {
-        int absISize = Math.abs(getInferredInsertSize());
-        return absISize > 0 && absISize <= getReadLength();
-    }
-
     public float getScore() {
         return getMappingQuality();
     }
@@ -657,34 +799,17 @@ public abstract class SAMAlignment implements Alignment {
         this.end = end;
     }
 
-    public String getSample() {
-        return sample;
-    }
-
-    public String getReadGroup() {
-        return readGroup;
-    }
-
 
     public abstract Object getAttribute(String key);
 
-    public String getLibrary() {
-        return library;
-    }
-
-    @Override
-    public char[] getGapTypes() {
-        return gapTypes;
+    public java.util.List<Gap> getGaps() {
+        return gaps;
     }
 
 
     @Override
     public void finish() {
 
-        Genome genome = GenomeManager.getInstance().getCurrentGenome();
-        for (AlignmentBlock block : alignmentBlocks) {
-            block.reduce(genome);
-        }
     }
 
 
@@ -695,22 +820,6 @@ public abstract class SAMAlignment implements Alignment {
     @Override
     public String getPairOrientation() {
         return pairOrientation;
-    }
-
-
-    /**
-     * Use blocks to recreate read sequence.
-     * As of this comment writing, we don't keep a block
-     * for hard-clipped bases, so this won't match what's in the file
-     *
-     * @return
-     */
-    String buildReadSequenceFromBlocks() {
-        String readSeq = "";
-        for (AlignmentBlock block : getAlignmentBlocks()) {
-            readSeq += new String(block.getBases());
-        }
-        return readSeq;
     }
 
 
@@ -806,25 +915,6 @@ public abstract class SAMAlignment implements Alignment {
         }
     }
 
-    //(String chr, int start, boolean negativeStrand,boolean isReadUnmappedFlag) {
-    //SA = X,82962991,+,18S51M31S,0,0;
-    static List<ReadMate> parseSupplementaryTag(String sa) {
-
-        List<ReadMate> mates = new ArrayList();
-        String[] records = Globals.semicolonPattern.split(sa);
-        for (String rec : records) {
-            String[] tokens = Globals.commaPattern.split(rec);
-            String seq = tokens[0];
-            int pos = Integer.parseInt(tokens[1]);
-            boolean negStrand = tokens[2].equals("-");
-            String cigar = tokens[3];
-            int mapQ = Integer.parseInt(tokens[4]);
-            int numMismatches = Integer.parseInt(tokens[5]);
-            mates.add(new ReadMate(seq, pos, negStrand, true));
-        }
-        return mates;
-    }
-
     public void setChr(String chr) {
         this.chr = chr;
     }
@@ -847,5 +937,98 @@ public abstract class SAMAlignment implements Alignment {
         }
     }
 
+    public static class SupplementaryAlignment {
+
+        public String chr;
+        public int start;
+        public char strand;
+        public int mapQ;
+        public int numMismatches;
+        public int lenOnRef;
+
+
+        public SupplementaryAlignment(String rec) {
+            String[] tokens = Globals.commaPattern.split(rec);
+            chr = tokens[0];
+            start = Integer.parseInt(tokens[1]);
+            strand = tokens[2].charAt(0);
+            mapQ = Integer.parseInt(tokens[4]);
+            numMismatches = Integer.parseInt(tokens[5]);
+            lenOnRef = computeLengthOnReference(tokens[3]);
+        }
+
+        public String printString() {
+            // chr6:43,143,415-43,149,942 (-) @ MAPQ 60 NM 763
+            return chr + ":" + Globals.DECIMAL_FORMAT.format(start) + "-" + Globals.DECIMAL_FORMAT.format(start + lenOnRef)
+                    + " (" + strand + ") = " + Globals.DECIMAL_FORMAT.format(lenOnRef) + "bp  @MAPQ " + mapQ + " NM" + numMismatches;
+        }
+
+
+        int computeLengthOnReference(String cigarString) {
+
+            int len = 0;
+            StringBuffer buf = new StringBuffer();
+
+            for (char c : cigarString.toCharArray()) {
+
+                if (c > 47 && c < 58) {
+                    buf.append(c);
+                } else {
+                    switch (c) {
+                        case 'N':
+                        case 'D':
+                        case 'M':
+                        case '=':
+                        case 'X':
+                            len += Integer.parseInt(buf.toString());
+                    }
+                    buf.setLength(0);
+                }
+
+            }
+            return len;
+        }
+    }
+
+    public String getSynopsisString() {
+
+        char st = isNegativeStrand() ? '-' : '+';
+        Object nm = getAttribute("NM");
+        String numMismatches = nm == null ? "?" : nm.toString();
+        int lenOnRef = getAlignmentEnd() - getAlignmentStart();
+
+        int[] clipping = getClipping(getCigarString());
+        String clippingString = "";
+        if (clipping[0] + clipping[1] + clipping[2] + clipping[3] > 0) {
+            if (clipping[0] > 0) clippingString += clipping[0] + "H";
+            if (clipping[1] > 0) clippingString += clipping[1] + "S";
+            clippingString += " ... ";
+            if (clipping[3] > 0) clippingString += clipping[3] + "S";
+            if (clipping[2] > 0) clippingString += clipping[2] + "H";
+        }
+
+        return chr + ":" + Globals.DECIMAL_FORMAT.format(getAlignmentStart()) + "-" +
+                Globals.DECIMAL_FORMAT.format(getAlignmentEnd())
+                + " (" + st + ") = " + Globals.DECIMAL_FORMAT.format(lenOnRef) + "BP  @MAPQ=" + getMappingQuality() +
+                " NM=" + numMismatches + " CLIPPING=" + clippingString;
+
+    }
+
+
+    private int[] getClipping(String cigarString) {
+        // Identify the number of hard and soft clipped bases.
+        Matcher lclipMatcher = Pattern.compile("^(([0-9]+)H)?(([0-9]+)S)?").matcher(cigarString);
+        Matcher rclipMatcher = Pattern.compile("(([0-9]+)S)?(([0-9]+)H)?$").matcher(cigarString);
+        int lclipHard = 0, lclipSoft = 0, rclipHard = 0, rclipSoft = 0;
+        if (lclipMatcher.find()) {
+            lclipHard = lclipMatcher.group(2) == null ? 0 : Integer.parseInt(lclipMatcher.group(2), 10);
+            lclipSoft = lclipMatcher.group(4) == null ? 0 : Integer.parseInt(lclipMatcher.group(4), 10);
+        }
+        if (rclipMatcher.find()) {
+            rclipHard = rclipMatcher.group(4) == null ? 0 : Integer.parseInt(rclipMatcher.group(4), 10);
+            rclipSoft = rclipMatcher.group(2) == null ? 0 : Integer.parseInt(rclipMatcher.group(2), 10);
+        }
+        return new int[]{lclipHard, lclipSoft, rclipHard, rclipSoft};
+    }
 
 }

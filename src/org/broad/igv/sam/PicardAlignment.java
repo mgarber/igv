@@ -1,13 +1,28 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
+
 package org.broad.igv.sam;
 
 //~--- non-JDK imports --------------------------------------------------------
@@ -16,11 +31,13 @@ import htsjdk.samtools.SAMFileHeader;
 import htsjdk.samtools.SAMReadGroupRecord;
 import htsjdk.samtools.SAMRecord;
 import org.apache.log4j.Logger;
+import org.broad.igv.PreferenceManager;
 import org.broad.igv.feature.genome.Genome;
 import org.broad.igv.feature.genome.GenomeManager;
 import org.broad.igv.ui.color.ColorUtilities;
 
 import java.util.List;
+import java.util.ArrayList;
 
 /**
  * @author jrobinso
@@ -28,6 +45,7 @@ import java.util.List;
 public class PicardAlignment extends SAMAlignment implements Alignment {
 
     private static Logger log = Logger.getLogger(PicardAlignment.class);
+    private static PreferenceManager prefMgr = PreferenceManager.getInstance();
 
     private static final int READ_PAIRED_FLAG = 0x1;
     private static final int PROPER_PAIR_FLAG = 0x2;
@@ -42,7 +60,7 @@ public class PicardAlignment extends SAMAlignment implements Alignment {
     private static final int DUPLICATE_READ_FLAG = 0x400;
     private static final int SUPPLEMENTARY_ALIGNMENT_FLAG = 0x800;
 
-
+    private SAMReadGroupRecord readGroupRecord;
     private int flags;
 
     /**
@@ -59,7 +77,7 @@ public class PicardAlignment extends SAMAlignment implements Alignment {
 
         String refName = record.getReferenceName();
         Genome genome = GenomeManager.getInstance().getCurrentGenome();
-        this.chr = genome == null ? refName : genome.getChromosomeAlias(refName);
+        this.chr = genome == null ? refName : genome.getCanonicalChrName(refName);
 
         // SAMRecord is 1 based inclusive.  IGV is 0 based exclusive.
 
@@ -69,25 +87,23 @@ public class PicardAlignment extends SAMAlignment implements Alignment {
 
         if (record.getReadPairedFlag()) {
             String mateReferenceName = record.getMateReferenceName();
-            String mateChr = genome == null ? mateReferenceName : genome.getChromosomeAlias(mateReferenceName);
+            String mateChr = genome == null ? mateReferenceName : genome.getCanonicalChrName(mateReferenceName);
             this.setMate(new ReadMate(mateChr,
                     record.getMateAlignmentStart() - 1,
                     record.getMateNegativeStrandFlag(),
                     record.getMateUnmappedFlag()));
         }
 
-        String keySequence = null;
         SAMFileHeader header = record.getHeader();
+        String keySequence = null;
         String flowOrder = null;
         if (header != null) {
-            readGroup = (String) record.getAttribute("RG");
+            String readGroup = (String) record.getAttribute("RG");
             if (readGroup != null) {
-                SAMReadGroupRecord rgRec = header.getReadGroup(readGroup);
-                if (rgRec != null) {
-                    this.sample = rgRec.getSample();
-                    this.library = rgRec.getLibrary();
-                    flowOrder = rgRec.getFlowOrder();
-                    keySequence = rgRec.getKeySequence();
+                this.readGroupRecord = header.getReadGroup(readGroup);
+                if(this.readGroupRecord != null) {
+                    keySequence = this.readGroupRecord.getKeySequence();
+                    flowOrder = this.readGroupRecord.getFlowOrder();
                 }
             }
         }
@@ -161,6 +177,7 @@ public class PicardAlignment extends SAMAlignment implements Alignment {
     public boolean isVendorFailedRead() {
         return (flags & READ_FAILS_VENDOR_QUALITY_CHECK_FLAG) != 0;
     }
+
     @Override
     public boolean isPrimary() {
         return (flags & NOT_PRIMARY_ALIGNMENT_FLAG) == 0;
@@ -212,6 +229,17 @@ public class PicardAlignment extends SAMAlignment implements Alignment {
     }
 
     protected String getAttributeString(boolean truncate) {
+        // List of tags to skip.  Some tags, like MD and SA, are both quite verbose and not easily
+        // interpreted by a human reader.  It is best to just hide these tags.  The list of tags
+        // to hide is set through the SAM_HIDDEN_TAGS preference.
+        ArrayList<String> tagsToHide = new ArrayList<String>();
+
+        String samHiddenTagsPref = prefMgr.get(PreferenceManager.SAM_HIDDEN_TAGS);
+        for (String s : (samHiddenTagsPref == null ? "" : samHiddenTagsPref).split("[, ]")) {
+            if (!s.equals("")) {
+                tagsToHide.add(s);
+            }
+        }
 
         StringBuffer buf = new StringBuffer();
         SAMRecord record = getRecord();
@@ -219,6 +247,9 @@ public class PicardAlignment extends SAMAlignment implements Alignment {
         if (attributes != null && !attributes.isEmpty()) {
 
             for (SAMRecord.SAMTagAndValue tag : attributes) {
+                if (tagsToHide.contains(tag.tag)) {
+                    continue;
+                }
                 buf.append("<br>" + tag.tag + " = ");
 
                 if (tag.value.getClass().isArray()) { // ignore array types
@@ -257,7 +288,10 @@ public class PicardAlignment extends SAMAlignment implements Alignment {
                 }
 
             }
-            buf.append("<br>-------------------");
+
+            if (samHiddenTagsPref != null && samHiddenTagsPref.trim().length() > 0) {
+                buf.append("<br>Hidden tags: " + samHiddenTagsPref);
+            }
         }
         return buf.toString();
     }
@@ -330,4 +364,15 @@ public class PicardAlignment extends SAMAlignment implements Alignment {
         return r;
     }
 
+    public String getSample() {
+        return readGroupRecord == null ? null : readGroupRecord.getSample();
+    }
+
+    public String getReadGroup() {
+        return readGroupRecord == null ? null : readGroupRecord.getId();
+    }
+
+    public String getLibrary() {
+        return readGroupRecord == null ? null : readGroupRecord.getLibrary();
+    }
 }

@@ -1,13 +1,28 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
+
 package org.broad.igv.session;
 
 import org.apache.log4j.Logger;
@@ -193,6 +208,7 @@ public class IGVSessionReader implements SessionReader {
         FILTER_SHOW_ALL_TRACKS("showTracks"),
         GENOME("genome"),
         GROUP_TRACKS_BY("groupTracksBy"),
+        NEXT_AUTOSCALE_GROUP("nextAutoscaleGroup"),
         HEIGHT("height"),
         ID("id"),
         ITEM("item"),
@@ -231,6 +247,7 @@ public class IGVSessionReader implements SessionReader {
         DESCRIPTION("description"),
         TYPE("type"),
         COVERAGE("coverage"),
+        MAPPING("mapping"),
         TRACK_LINE("trackLine"),
 
         CHR("chr"),
@@ -305,6 +322,7 @@ public class IGVSessionReader implements SessionReader {
         }
 
         this.rootPath = sessionPath;
+
         processRootNode(session, nodes.item(0), additionalInformation, sessionPath);
 
         // Add tracks not explicitly allocated to panels.  It is legal to define sessions with the Resources
@@ -381,7 +399,7 @@ public class IGVSessionReader implements SessionReader {
                 if (!genomeId.equals(GenomeManager.getInstance().getGenomeId())) {
                     String genomePath = genomeId;
                     if (!ParsingUtils.pathExists(genomePath)) {
-                        genomePath = FileUtils.getAbsolutePath(session.getPath(), genomeId);
+                        genomePath = getAbsolutePath(genomeId, rootPath, session.getPath());
                     }
                     if (ParsingUtils.pathExists(genomePath)) {
                         try {
@@ -429,6 +447,15 @@ public class IGVSessionReader implements SessionReader {
 
         session.setLocus(getAttribute(element, SessionAttribute.LOCUS.getText()));
         session.setGroupTracksBy(getAttribute(element, SessionAttribute.GROUP_TRACKS_BY.getText()));
+
+        String nextAutoscaleGroup = getAttribute(element, SessionAttribute.NEXT_AUTOSCALE_GROUP.getText());
+        if(nextAutoscaleGroup != null) {
+            try {
+                session.setNextAutoscaleGroup(Integer.parseInt(nextAutoscaleGroup));
+            } catch (NumberFormatException e) {
+                log.error("Error setting next autoscale group", e);
+            }
+        }
 
         String removeEmptyTracks = getAttribute(element, "removeEmptyTracks");
         if (removeEmptyTracks != null) {
@@ -534,9 +561,11 @@ public class IGVSessionReader implements SessionReader {
     }
 
     private void processResources(Session session, Element element, HashMap additionalInformation, String rootPath, String alternateRootPath) {
+
         dataFiles = new ArrayList();
         missingDataFiles = new ArrayList();
         NodeList elements = element.getChildNodes();
+
         process(session, elements, additionalInformation, rootPath, alternateRootPath);
 
         if (missingDataFiles.size() > 0) {
@@ -680,6 +709,7 @@ public class IGVSessionReader implements SessionReader {
         String description = getAttribute(element, SessionAttribute.DESCRIPTION.getText());
         String type = getAttribute(element, SessionAttribute.TYPE.getText());
         String coverage = getAttribute(element, SessionAttribute.COVERAGE.getText());
+        String mapping = getAttribute(element, SessionAttribute.MAPPING.getText());
         String trackLine = getAttribute(element, SessionAttribute.TRACK_LINE.getText());
         String colorString = getAttribute(element, SessionAttribute.COLOR.getText());
         String index = getAttribute(element, SessionAttribute.INDEX.getText());
@@ -704,7 +734,8 @@ public class IGVSessionReader implements SessionReader {
             return;
         }
 
-        String absolutePath = getAbsolutePath(path, rootPath, alternateRootPath);
+        String absolutePath = "ga4gh".equals(type) ? path :
+                getAbsolutePath(path, rootPath, alternateRootPath);
 
         fullToRelPathMap.put(absolutePath, path);
 
@@ -713,10 +744,14 @@ public class IGVSessionReader implements SessionReader {
         if (index != null) resourceLocator.setIndexPath(index);
 
         if (coverage != null) {
-            String absoluteCoveragePath = getAbsolutePath(coverage, rootPath, alternateRootPath);
+            String absoluteCoveragePath = coverage.equals(".") ? coverage : getAbsolutePath(coverage, rootPath, alternateRootPath);
             resourceLocator.setCoverage(absoluteCoveragePath);
         }
 
+        if (mapping != null) {
+            String absoluteMappingPath = mapping.equals(".") ? mapping : getAbsolutePath(mapping, rootPath, alternateRootPath);
+            resourceLocator.setMappingPath(absoluteMappingPath);
+        }
 
         String url = getAttribute(element, SessionAttribute.URL.getText());
         if (url == null) {

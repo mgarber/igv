@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.tools;
@@ -65,7 +79,7 @@ public class CoverageCounterTest extends AbstractHeadlessTest {
     @Ignore    // The test file no longer exists
     @Test
     public void testPairFlag() throws Exception{
-        String bamURL = "http://www.broadinstitute.org/igvdata/1KG/pilot2Bams/NA12878.SLX.bam";
+        String bamURL = "http://data.broadinstitute.org/igvdata/1KG/pilot2Bams/NA12878.SLX.bam";
         String queryString = "2:1000-1100";
         File wigFile = new File(TestUtils.DATA_DIR + "out/testPair.wig");
         int windowSize = 1;
@@ -130,54 +144,11 @@ public class CoverageCounterTest extends AbstractHeadlessTest {
         }
     }
 
-    /*
-    Simple test, output all 3 data columns and check that they add up properly (both = positive + negative)
-    */
-    @Test
-    public void testStrandsConsistent() throws Exception {
-        String ifile = TestUtils.DATA_DIR + "bed/Unigene.sample.sorted.bed";
-        int[] windowSizes = new int[]{10, 50, 101, 500, 999};
-
-        File wigFile = null;//new File(TestUtils.DATA_DIR + "out", "testStrandsConsistent.wig");
-        //Test that when we run the process twice, with separate and totalled strands, the results add
-        //up properly
-        int[] strandOptions = new int[]{0, CoverageCounter.STRANDS_BY_READ, CoverageCounter.STRANDS_BY_FIRST_IN_PAIR, CoverageCounter.BASES};
-        int[] expected_cols = new int[]{1, 2, 2, 5};
-        TestDataConsumer[] tdcs = new TestDataConsumer[expected_cols.length];
-
-        for (int ii = 0; ii < windowSizes.length; ii++) {
-            for (int so = 0; so < strandOptions.length; so++) {
-                TestDataConsumer dc = new TestDataConsumer();
-                CoverageCounter cc = new CoverageCounter(ifile, dc, windowSizes[ii], 0, wigFile, genome, null, 0, strandOptions[so]);
-                cc.parse();
-
-                for (TestData tdata : dc.testDatas) {
-                    float[] numbers = tdata.data;
-                    assertEquals(expected_cols[so], numbers.length);
-                }
-                tdcs[so] = dc;
-            }
-
-            TestDataConsumer total_dc = tdcs[0];
-            assertEquals(total_dc.testDatas.size(), tdcs[1].testDatas.size());
-            for (int opts = 1; opts < strandOptions.length; opts++) {
-                TestDataConsumer tdc = tdcs[opts];
-                for (int row = 0; row < total_dc.testDatas.size(); row++) {
-                    TestData td = tdc.testDatas.get(row);
-                    float act_sum = 0;
-                    for (float f : td.data) {
-                        act_sum += f;
-                    }
-                    assertEquals(total_dc.testDatas.get(row).data[0], act_sum, 1e-2);
-                }
-            }
-        }
-    }
 
     @Test
     public void testCountBases() throws Exception {
         String ifile = TestUtils.DATA_DIR + "sam/NA12878.muc1.test.sam";
-        int expected_cols = 10;
+        int expected_cols = 14;
 
         File wigFile = new File(TestUtils.DATA_DIR + "out", "testCountBases.wig");
         int windowSize = 1;
@@ -191,9 +162,9 @@ public class CoverageCounterTest extends AbstractHeadlessTest {
         int check_startpos = 153426135 - 1;
         Map<Byte, Integer> posCounts = new HashMap<Byte, Integer>();
         Map<Byte, Integer> negCounts = new HashMap<Byte, Integer>();
-        byte[] keys = new byte[]{'A', 'C', 'G', 'T', 'N'};
-        int[] posvals = new int[]{9, 0, 0, 2, 0};
-        int[] negvals = new int[]{16, 0, 0, 0, 0};
+        byte[] keys = new byte[]{'A', 'C', 'G', 'T', 'N', CoverageCounter.DEL, CoverageCounter.INS};
+        int[] posvals = new int[]{9, 0, 0, 2, 0, 0, 0};
+        int[] negvals = new int[]{16, 0, 0, 0, 0, 0, 0};
         for (int ii = 0; ii < keys.length; ii++) {
             posCounts.put(keys[ii], posvals[ii]);
             negCounts.put(keys[ii], negvals[ii]);
@@ -257,7 +228,7 @@ public class CoverageCounterTest extends AbstractHeadlessTest {
 
     @Test
     public void testIncludeDuplicatesFlag() throws IOException {
-        String bamURL = "http://www.broadinstitute.org/igvdata/BodyMap/hg18/Merged/HBM.adipose.bam.sorted.bam";
+        String bamURL = "http://data.broadinstitute.org/igvdata/BodyMap/hg18/Merged/HBM.adipose.bam.sorted.bam";
         int options = CoverageCounter.INCLUDE_DUPS;
         String queryString = "chr1:153425249-153425249";
         int windowSize = 1;

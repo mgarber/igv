@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2013 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 /*
@@ -18,9 +32,11 @@ package org.broad.igv.ui.action;
 import org.apache.log4j.Logger;
 import org.broad.igv.PreferenceManager;
 import org.broad.igv.exceptions.HttpResponseException;
+import org.broad.igv.ga4gh.GoogleUtils;
 import org.broad.igv.ga4gh.OAuthUtils;
 import org.broad.igv.ui.IGV;
 import org.broad.igv.ui.IGVMenuBar;
+import org.broad.igv.ui.util.LoadFromURLDialog;
 import org.broad.igv.ui.util.MessageUtils;
 import org.broad.igv.util.HttpUtils;
 import org.broad.igv.util.ResourceLocator;
@@ -45,6 +61,7 @@ public class LoadFromURLMenuAction extends MenuAction {
     static Logger log = Logger.getLogger(LoadFilesMenuAction.class);
     public static final String LOAD_FROM_DAS = "Load from DAS...";
     public static final String LOAD_FROM_URL = "Load from URL...";
+    public static final String LOAD_FILE_AND_INDEX_FROM_URLS = "Load file and index from URLs...";
     public static final String LOAD_GENOME_FROM_URL = "Load Genome from URL...";
     private IGV igv;
 
@@ -59,39 +76,58 @@ public class LoadFromURLMenuAction extends MenuAction {
         JPanel ta = new JPanel();
         ta.setPreferredSize(new Dimension(600, 20));
         if (e.getActionCommand().equalsIgnoreCase(LOAD_FROM_URL)) {
-            String url = JOptionPane.showInputDialog(IGV.getMainFrame(), ta, "Enter URL (http or ftp)", JOptionPane.QUESTION_MESSAGE);
 
-            if (url != null && url.trim().length() > 0) {
-                url = url.trim();
-                if (url.startsWith("gs://")) {
-                    enableGoogleMenu();
-                    url = translateGoogleCloudURL(url);
-                }
+            LoadFromURLDialog dlg = new LoadFromURLDialog(IGV.getMainFrame());
+            dlg.setVisible(true);
 
-                if (OAuthUtils.isGoogleCloud(url)) {
+            if (!dlg.isCanceled()) {
 
-                    // Access a few bytes as a means to check authorization
-                    if(!ping(url)) return;
+                String url = dlg.getFileURL();
 
-                    if (url.indexOf("alt=media") < 0) {
-                        url = url + (url.indexOf('?') > 0 ? "&" : "?") + "alt=media";
+                if (url != null && url.trim().length() > 0) {
+
+                    url = url.trim();
+
+                    if (url.startsWith("gs://")) {
+                        enableGoogleMenu();
+                        url = GoogleUtils.translateGoogleCloudURL(url);
                     }
 
-                }
-
-
-                if (url.endsWith(".xml") || url.endsWith(".session")) {
-                    try {
-                        boolean merge = false;
-                        String locus = null;
-                        igv.doRestoreSession(url, locus, merge);
-                    } catch (Exception ex) {
-                        MessageUtils.showMessage("Error loading url: " + url + " (" + ex.toString() + ")");
+                    if (OAuthUtils.isGoogleCloud(url)) {
+                        // Access a few bytes as a means to check authorization
+                        if (!ping(url)) return;
+                        if (url.indexOf("alt=media") < 0) {
+                            url = url + (url.indexOf('?') > 0 ? "&" : "?") + "alt=media";
+                        }
                     }
-                } else {
-                    ResourceLocator rl = new ResourceLocator(url.trim());
-                    igv.loadTracks(Arrays.asList(rl));
 
+                    if (url.endsWith(".xml") || url.endsWith(".session")) {
+                        try {
+                            boolean merge = false;
+                            String locus = null;
+                            igv.doRestoreSession(url, locus, merge);
+                        } catch (Exception ex) {
+                            MessageUtils.showMessage("Error loading url: " + url + " (" + ex.toString() + ")");
+                        }
+                    } else {
+                        ResourceLocator rl = new ResourceLocator(url.trim());
+
+                        if(dlg.getIndexURL() != null) {
+                            String indexUrl = dlg.getIndexURL().trim();
+                            if (indexUrl.startsWith("gs://")) {
+                                enableGoogleMenu();
+                                indexUrl = GoogleUtils.translateGoogleCloudURL(indexUrl);
+                            }
+                            if (OAuthUtils.isGoogleCloud(indexUrl)) {
+                                if (indexUrl.indexOf("alt=media") < 0) {
+                                    indexUrl = indexUrl + (indexUrl.indexOf('?') > 0 ? "&" : "?") + "alt=media";
+                                }
+                            }
+                            rl.setIndexPath(indexUrl);
+                        }
+                        igv.loadTracks(Arrays.asList(rl));
+
+                    }
                 }
             }
         } else if ((e.getActionCommand().equalsIgnoreCase(LOAD_FROM_DAS))) {
@@ -124,53 +160,23 @@ public class LoadFromURLMenuAction extends MenuAction {
     }
 
 
-    /**
-     * gs://igv-bam-test/NA12878.bam
-     * https://www.googleapis.com/storage/v1/b/igv-bam-test/o/NA12878.bam
-     *
-     * @param gsUrl
-     * @return
-     */
-    private String translateGoogleCloudURL(String gsUrl) {
-
-        int i = gsUrl.indexOf('/', 5);
-        if (i < 0) {
-            log.error("Invalid gs url: " + gsUrl);
-            return gsUrl;
-        }
-
-        String bucket = gsUrl.substring(5, i);
-        String object = gsUrl.substring(i + 1);
-        try {
-            object = URLEncoder.encode(object, "UTF8");
-        } catch (UnsupportedEncodingException e) {
-            // This isn't going to happen
-            log.error(e);
-        }
-
-        return "https://www.googleapis.com/storage/v1/b/" + bucket + "/o/" + object;
-
-    }
-
-
     private boolean ping(String url) {
         InputStream is = null;
         try {
             Map<String, String> params = new HashMap();
             params.put("Range", "0-10");
-            byte [] buffer = new byte[10];
+            byte[] buffer = new byte[10];
             is = HttpUtils.getInstance().openConnectionStream(new URL(url), params);
             is.read(buffer);
             is.close();
-        }  catch (HttpResponseException e1) {
+        } catch (HttpResponseException e1) {
             MessageUtils.showMessage(e1.getMessage());
             return false;
-        }
-        catch (IOException e) {
+        } catch (IOException e) {
             log.error(e);
 
         } finally {
-            if(is != null) try {
+            if (is != null) try {
                 is.close();
             } catch (IOException e) {
                 e.printStackTrace();

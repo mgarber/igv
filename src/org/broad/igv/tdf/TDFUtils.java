@@ -1,19 +1,26 @@
 /*
- * Copyright (c) 2007-2011 by The Broad Institute of MIT and Harvard.  All Rights Reserved.
+ * The MIT License (MIT)
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * THE SOFTWARE IS PROVIDED "AS IS." THE BROAD AND MIT MAKE NO REPRESENTATIONS OR
- * WARRANTES OF ANY KIND CONCERNING THE SOFTWARE, EXPRESS OR IMPLIED, INCLUDING,
- * WITHOUT LIMITATION, WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
- * PURPOSE, NONINFRINGEMENT, OR THE ABSENCE OF LATENT OR OTHER DEFECTS, WHETHER
- * OR NOT DISCOVERABLE.  IN NO EVENT SHALL THE BROAD OR MIT, OR THEIR RESPECTIVE
- * TRUSTEES, DIRECTORS, OFFICERS, EMPLOYEES, AND AFFILIATES BE LIABLE FOR ANY DAMAGES
- * OF ANY KIND, INCLUDING, WITHOUT LIMITATION, INCIDENTAL OR CONSEQUENTIAL DAMAGES,
- * ECONOMIC DAMAGES OR INJURY TO PROPERTY AND LOST PROFITS, REGARDLESS OF WHETHER
- * THE BROAD OR MIT SHALL BE ADVISED, SHALL HAVE OTHER REASON TO KNOW, OR IN FACT
- * SHALL KNOW OF THE POSSIBILITY OF THE FOREGOING.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 /*
@@ -37,14 +44,12 @@ import java.util.Map;
 public class TDFUtils {
 
     public static void main(String[] args) throws FileNotFoundException {
-        //chr1:170,118,422-170,764,140
-        TDFUtils.dumpIndex("/Users/jrobinso/IGV/gbm/GBM.transcriptome__agilentg4502a_07_2__unc_edu__Level_3__unc_lowess_normalization_gene_level__data.data.tdf");
-        //TDFUtils.dumpAllTiles("/Users/jrobinso/projects/client/compressed.tdf");
-        //TDFUtils.tdfToBedgraph("/Users/jrobinso/IGV/time_course/cebpb_0.merged.bam.tdf",
-        //        "/Users/jrobinso/IGV/time_course/test.wig");
-        //TDFUtils.dumpTile("/Users/jrobinso/IGV/allaml.dataset.gct.tdf", "/chr4/raw", 130);
-        //TDFUtils.dumpDatasets("/Users/jrobinso/IGV/affy_1552717.gct.tdf");
-        //TDFUtils.dumpDatasets("/Volumes/igv/tools/OV-1116.capture.tumor.20b.cov.tdf");
+        //TDFUtils.dumpIndex(args[0]);
+        //TDFUtils.dumpAllTiles(args[0]);
+        //TDFUtils.tdfToBedgraph(args[0], args[1])
+        TDFUtils.dumpTile(args[0], args[1], Integer.parseInt(args[2])); //"allaml.dataset.gct.tdf", "/chr4/raw", 130);
+        //TDFUtils.dumpDatasets(args[0]);
+        //TDFUtils.dumpDatasets(args[0]);
     }
 
     public static void dumpIndex(String tdfFile) {
@@ -293,7 +298,7 @@ public class TDFUtils {
     chr1:241356465-241356657
     chr1:241358198-241358223
     chr1:241359291-241359329
-    
+
     chr4:119691730-119691768
     chr4:119692843-119692868
     chr4:119694419-119694611

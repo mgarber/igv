@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2013 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.track;
@@ -16,11 +30,9 @@ import org.broad.igv.renderer.ContinuousColorScale;
 import org.broad.igv.renderer.DataRange;
 import org.broad.igv.session.IGVSessionReader;
 import org.broad.igv.session.SubtlyImportant;
-import org.broad.igv.ui.IGV;
 import org.broad.igv.ui.color.ColorUtilities;
 import org.broad.igv.ui.panel.IGVPopupMenu;
 import org.broad.igv.ui.panel.ReferenceFrame;
-import org.broad.igv.ui.panel.TrackPanel;
 import org.broad.igv.util.ResourceLocator;
 
 import javax.swing.*;
@@ -42,7 +54,7 @@ import java.util.List;
  * @date 2013-Nov-05
  */
 @XmlType(factoryMethod = "getNextTrack")
-public class MergedTracks extends DataTrack{
+public class MergedTracks extends DataTrack {
 
     @XmlAttribute
     protected Class clazz = MergedTracks.class;
@@ -55,7 +67,7 @@ public class MergedTracks extends DataTrack{
      */
     public static final String MEMBER_TRACK_TAG_NAME = "Track";
 
-    public MergedTracks(String id, String name, Collection<DataTrack> inputTracks){
+    public MergedTracks(String id, String name, Collection<DataTrack> inputTracks) {
         super(null, id, name);
         initTrackList(inputTracks);
         this.autoScale = this.getAutoScale();
@@ -64,31 +76,31 @@ public class MergedTracks extends DataTrack{
 
     private void initTrackList(Collection<DataTrack> inputTracks) {
         this.memberTracks = new ArrayList<DataTrack>(inputTracks.size());
-        for(DataTrack inputTrack: inputTracks){
-            if(inputTrack instanceof MergedTracks){
+        for (DataTrack inputTrack : inputTracks) {
+            if (inputTrack instanceof MergedTracks) {
                 this.memberTracks.addAll(((MergedTracks) inputTrack).getMemberTracks());
-            }else{
+            } else {
                 this.memberTracks.add(inputTrack);
             }
         }
     }
 
     @Override
-    public Collection<ResourceLocator> getResourceLocators(){
+    public Collection<ResourceLocator> getResourceLocators() {
         Collection<ResourceLocator> locators = new ArrayList<ResourceLocator>(memberTracks.size());
-        for(DataTrack memTrack: memberTracks){
+        for (DataTrack memTrack : memberTracks) {
             locators.addAll(memTrack.getResourceLocators());
         }
         return locators;
     }
 
     @XmlElement(name = MEMBER_TRACK_TAG_NAME)
-    Collection<DataTrack> getMemberTracks(){
+    Collection<DataTrack> getMemberTracks() {
         return this.memberTracks;
     }
 
     public void setTrackAlphas(int alpha) {
-        for(Track track: memberTracks){
+        for (Track track : memberTracks) {
             track.setColor(ColorUtilities.modifyAlpha(track.getColor(), alpha));
             track.setAltColor(ColorUtilities.modifyAlpha(track.getAltColor(), alpha));
         }
@@ -97,22 +109,16 @@ public class MergedTracks extends DataTrack{
 
     @Override
     public void render(RenderContext context, Rectangle rect) {
-        resetLastY();
-        for(Track track: memberTracks){
-            if(isRepeatY(rect)){
-                track.overlay(context, rect);
-            }else{
-                track.render(context, rect);
-                lastRenderY = rect.y;
-            }
 
+        for (Track track : memberTracks) {
+            track.render(context, rect);
         }
     }
 
     @Override
     public int getHeight() {
         int height = super.getHeight();
-        for(Track track: memberTracks){
+        for (Track track : memberTracks) {
             height = Math.max(height, track.getHeight());
         }
         return height;
@@ -121,7 +127,7 @@ public class MergedTracks extends DataTrack{
     @Override
     public void setHeight(int height) {
         super.setHeight(height);
-        for(Track track: memberTracks){
+        for (Track track : memberTracks) {
             track.setHeight(height);
         }
     }
@@ -129,26 +135,26 @@ public class MergedTracks extends DataTrack{
     @Override
     public void setDataRange(DataRange axisDefinition) {
         super.setDataRange(axisDefinition);
-        for(Track track: memberTracks){
+        for (Track track : memberTracks) {
             track.setDataRange(axisDefinition);
         }
     }
 
     @Override
     public DataRange getDataRange() {
-        if(this.dataRange == null){
+        if (this.dataRange == null) {
             this.dataRange = DataRange.getFromTracks(memberTracks);
         }
         return this.dataRange;
     }
 
     @Override
-    public String getValueStringAt(String chr, double position, int y, ReferenceFrame frame) {
+    public String getValueStringAt(String chr, double position, int mouseX, int mouseY, ReferenceFrame frame) {
         StringBuilder builder = new StringBuilder(memberTracks.size() + 2);
         builder.append(getName());
         builder.append("<br/>--------------<br/>");
-        for(Track track: memberTracks){
-            String curS = track.getValueStringAt(chr, position, y, frame);
+        for (Track track : memberTracks) {
+            String curS = track.getValueStringAt(chr, position, mouseX, mouseY, frame);
             if (curS != null) {
                 builder.append(curS);
                 builder.append("<br/>--------------<br/>");
@@ -165,7 +171,7 @@ public class MergedTracks extends DataTrack{
     @Override
     public void setRendererClass(Class rc) {
         super.setRendererClass(rc);
-        for(Track track: memberTracks){
+        for (Track track : memberTracks) {
             track.setRendererClass(rc);
         }
     }
@@ -173,7 +179,7 @@ public class MergedTracks extends DataTrack{
     @Override
     public boolean getAutoScale() {
         boolean autoScale = super.getAutoScale();
-        for(Track track: memberTracks){
+        for (Track track : memberTracks) {
             autoScale &= track.getAutoScale();
         }
         return autoScale;
@@ -182,7 +188,7 @@ public class MergedTracks extends DataTrack{
     @Override
     public void setAutoScale(boolean autoScale) {
         super.setAutoScale(autoScale);
-        for(Track track: memberTracks){
+        for (Track track : memberTracks) {
             track.setAutoScale(autoScale);
         }
     }
@@ -195,7 +201,7 @@ public class MergedTracks extends DataTrack{
     @Override
     public void setColorScale(ContinuousColorScale colorScale) {
         super.setColorScale(colorScale);
-        for(Track track: memberTracks){
+        for (Track track : memberTracks) {
             track.setColorScale(colorScale);
         }
     }
@@ -203,7 +209,7 @@ public class MergedTracks extends DataTrack{
     @Override
     public void setWindowFunction(WindowFunction type) {
         super.setWindowFunction(type);
-        for(Track track: memberTracks){
+        for (Track track : memberTracks) {
             track.setWindowFunction(type);
         }
     }
@@ -211,7 +217,7 @@ public class MergedTracks extends DataTrack{
     @Override
     public void setShowDataRange(boolean showDataRange) {
         super.setShowDataRange(showDataRange);
-        for(DataTrack track: memberTracks){
+        for (DataTrack track : memberTracks) {
             track.setShowDataRange(showDataRange);
         }
     }
@@ -227,7 +233,7 @@ public class MergedTracks extends DataTrack{
         //Give users the ability to set the color of each track individually
         JMenu setPosColorMenu = new JMenu("Change Track Color (Positive Values)");
         JMenu setNegColorMenu = new JMenu("Change Track Color (Negative Values)");
-        for(DataTrack track: memberTracks){
+        for (DataTrack track : memberTracks) {
 
             Icon posColorIcon = new ColorIcon(track.getColor());
             JMenuItem posItem = new JMenuItem(track.getName(), posColorIcon);
@@ -246,22 +252,17 @@ public class MergedTracks extends DataTrack{
         menu.add(TrackMenuUtils.getChangeFontSizeItem(selfAsList));
 
         menu.addSeparator();
-        TrackMenuUtils.addDataItems(menu, selfAsList);
-        for(Component c: menu.getComponents()){
-            if(c instanceof JMenuItem){
+        TrackMenuUtils.addDataItems(menu, selfAsList, true);
+        for (Component c : menu.getComponents()) {
+            if (c instanceof JMenuItem) {
                 String text = ((JMenuItem) c).getText();
                 text = text != null ? text.toLowerCase() : "null";
-                if(text.contains("heatmap")){
+                if (text.contains("heatmap")) {
                     c.setEnabled(false);
-                }    
+                }
             }
 
         }
-
-        menu.addSeparator();
-
-        menu.add(TrackMenuUtils.getRemoveMenuItem(selfAsList));
-
 
         return menu;
     }
@@ -274,23 +275,23 @@ public class MergedTracks extends DataTrack{
 //        }
 //    }
 
-    private enum ChangeTrackMethod{
+    private enum ChangeTrackMethod {
         POSITIVE, NEGATIVE
     }
 
-    private static class ChangeTrackColorActionListener implements ActionListener{
+    private static class ChangeTrackColorActionListener implements ActionListener {
 
         private Track mTrack;
         private ChangeTrackMethod method;
 
-        private ChangeTrackColorActionListener(Track track, ChangeTrackMethod method){
-            this.mTrack=track;
+        private ChangeTrackColorActionListener(Track track, ChangeTrackMethod method) {
+            this.mTrack = track;
             this.method = method;
         }
 
         @Override
         public void actionPerformed(ActionEvent e) {
-            switch(this.method){
+            switch (this.method) {
                 case POSITIVE:
                     TrackMenuUtils.changeTrackColor(Arrays.asList(this.mTrack));
                     break;
@@ -306,16 +307,16 @@ public class MergedTracks extends DataTrack{
     /**
      * A square, solid color Icon
      */
-    private static class ColorIcon implements Icon{
+    private static class ColorIcon implements Icon {
 
         private Color color;
         private int iconSize;
 
-        ColorIcon(Color color){
+        ColorIcon(Color color) {
             this(color, 16);
         }
 
-        ColorIcon(Color color, int iconSize){
+        ColorIcon(Color color, int iconSize) {
             this.color = color;
             this.iconSize = iconSize;
         }
@@ -324,7 +325,7 @@ public class MergedTracks extends DataTrack{
         public void paintIcon(Component c, Graphics g, int x, int y) {
             Graphics cg = g.create();
             cg.setColor(this.color);
-            if(this.iconSize > c.getHeight()){
+            if (this.iconSize > c.getHeight()) {
                 this.iconSize = c.getHeight();
             }
             cg.fillRect(x, y, this.iconSize, this.iconSize);
@@ -342,14 +343,14 @@ public class MergedTracks extends DataTrack{
     }
 
     @SubtlyImportant
-    private MergedTracks(){
+    private MergedTracks() {
         super(null, null, null);
     }
 
     @SubtlyImportant
-    private static MergedTracks getNextTrack(){
+    private static MergedTracks getNextTrack() {
         MergedTracks out = (MergedTracks) IGVSessionReader.getNextTrack();
-        if (out == null){
+        if (out == null) {
             out = new MergedTracks();
         }
         return out;

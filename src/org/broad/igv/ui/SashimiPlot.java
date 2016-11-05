@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.ui;
@@ -18,7 +32,6 @@ import org.broad.igv.sam.*;
 import org.broad.igv.track.*;
 import org.broad.igv.ui.color.ColorPalette;
 import org.broad.igv.ui.color.ColorUtilities;
-import org.broad.igv.ui.event.AlignmentTrackEvent;
 import org.broad.igv.ui.panel.*;
 import org.broad.igv.ui.util.UIUtilities;
 
@@ -44,7 +57,7 @@ import java.util.List;
  */
 public class SashimiPlot extends JFrame {
 
-    private List<SpliceJunctionFinderTrack> spliceJunctionTracks;
+    private List<SpliceJunctionTrack> spliceJunctionTracks;
     private ReferenceFrame frame;
 
     /**
@@ -85,17 +98,17 @@ public class SashimiPlot extends JFrame {
         //Add control elements to the top
         getContentPane().add(generateControlPanel(this.frame));
 
-        spliceJunctionTracks = new ArrayList<SpliceJunctionFinderTrack>(alignmentTracks.size());
+        spliceJunctionTracks = new ArrayList<SpliceJunctionTrack>(alignmentTracks.size());
         int colorInd = 0;
 
         for (AlignmentTrack alignmentTrack : alignmentTracks) {
 
 
-            AlignmentDataManager oldDataManager = alignmentTrack.getDataManager();
-            MemoryAlignmentDataManager dataManager = new MemoryAlignmentDataManager(oldDataManager, oldDataManager.getSpliceJunctionLoadOptions());
+            //AlignmentDataManager oldDataManager = alignmentTrack.getDataManager();
+            AlignmentDataManager dataManager = alignmentTrack.getDataManager();
 
-            SpliceJunctionFinderTrack spliceJunctionTrack =
-                    new SpliceJunctionFinderTrack(alignmentTrack.getResourceLocator(), alignmentTrack.getName(), dataManager, SpliceJunctionFinderTrack.StrandOption.COMBINE);
+            SpliceJunctionTrack spliceJunctionTrack =
+                    new SpliceJunctionTrack(alignmentTrack.getResourceLocator(), alignmentTrack.getName(), dataManager, null, SpliceJunctionTrack.StrandOption.COMBINE);
             // Override expand/collpase setting -- expanded sashimi plots make no sense
             spliceJunctionTrack.setDisplayMode(Track.DisplayMode.COLLAPSED);
 
@@ -105,9 +118,9 @@ public class SashimiPlot extends JFrame {
             colorInd = (colorInd + 1) % plotColors.size();
             spliceJunctionTrack.setColor(color);
 
-            TrackComponent<SpliceJunctionFinderTrack> trackComponent = new TrackComponent<SpliceJunctionFinderTrack>(frame, spliceJunctionTrack);
+            TrackComponent<SpliceJunctionTrack> trackComponent = new TrackComponent<SpliceJunctionTrack>(frame, spliceJunctionTrack);
 
-            initSpliceJunctionComponent(trackComponent, dataManager, oldDataManager.getCoverageTrack(), minJunctionCoverage);
+            initSpliceJunctionComponent(trackComponent, dataManager,dataManager.getCoverageTrack(), minJunctionCoverage);
 
             getContentPane().add(trackComponent);
             spliceJunctionTracks.add(spliceJunctionTrack);
@@ -184,9 +197,9 @@ public class SashimiPlot extends JFrame {
         geneTrack.setDisplayMode(Track.DisplayMode.SQUISHED);
 
         geneTrack.clearPackedFeatures();
-        RenderContext context = new RenderContextImpl(geneComponent, null, frame, null);
+        RenderContext context = new RenderContext(geneComponent, null, frame, null);
         geneTrack.setForceLoadSync(true);
-        geneTrack.load(context);
+        geneTrack.load(context.getReferenceFrame());
 
 
         Dimension maxGeneDim = new Dimension(Integer.MAX_VALUE, geneTrack.getNumberOfFeatureLevels() * geneTrack.getSquishedRowHeight() + 10);
@@ -200,7 +213,7 @@ public class SashimiPlot extends JFrame {
         geneComponent.addMouseMotionListener(ad2);
     }
 
-    private void initSpliceJunctionComponent(TrackComponent<SpliceJunctionFinderTrack> trackComponent, IAlignmentDataManager dataManager, CoverageTrack coverageTrack, int minJunctionCoverage) {
+    private void initSpliceJunctionComponent(TrackComponent<SpliceJunctionTrack> trackComponent, AlignmentDataManager dataManager, CoverageTrack coverageTrack, int minJunctionCoverage) {
         JunctionTrackMouseAdapter ad1 = new JunctionTrackMouseAdapter(trackComponent);
         trackComponent.addMouseListener(ad1);
         trackComponent.addMouseMotionListener(ad1);
@@ -214,7 +227,7 @@ public class SashimiPlot extends JFrame {
         getRenderer(trackComponent.track).setBackground(getBackground());
     }
 
-    private SashimiJunctionRenderer getRenderer(SpliceJunctionFinderTrack spliceJunctionTrack) {
+    private SashimiJunctionRenderer getRenderer(SpliceJunctionTrack spliceJunctionTrack) {
         return (SashimiJunctionRenderer) spliceJunctionTrack.getRenderer();
     }
 
@@ -234,7 +247,7 @@ public class SashimiPlot extends JFrame {
         }
 
         public void updateToolTipText(TrackClickEvent tce) {
-            toolTipText = track.getValueStringAt(tce.getFrame().getChrName(), tce.getChromosomePosition(), tce.getMouseEvent().getY(), tce.getFrame());
+            toolTipText = track.getValueStringAt(tce.getFrame().getChrName(), tce.getChromosomePosition(), tce.getMouseEvent().getX(), tce.getMouseEvent().getY(), tce.getFrame());
             toolTipText = "<html>" + toolTipText;
             setToolTipText(toolTipText);
         }
@@ -243,7 +256,7 @@ public class SashimiPlot extends JFrame {
         public void paintComponent(Graphics g) {
             super.paintComponent(g);
             Rectangle visibleRect = getVisibleRect();
-            RenderContext context = new RenderContextImpl(this, (Graphics2D) g, frame, visibleRect);
+            RenderContext context = new RenderContext(this, (Graphics2D) g, frame, visibleRect);
             track.render(context, visibleRect);
         }
 
@@ -258,8 +271,8 @@ public class SashimiPlot extends JFrame {
      * @param trackComponent
      * @param newMinJunctionCoverage
      */
-    private void setMinJunctionCoverage(TrackComponent<SpliceJunctionFinderTrack> trackComponent, int newMinJunctionCoverage) {
-        IAlignmentDataManager dataManager = getRenderer(trackComponent.track).getDataManager();
+    private void setMinJunctionCoverage(TrackComponent<SpliceJunctionTrack> trackComponent, int newMinJunctionCoverage) {
+        AlignmentDataManager dataManager = getRenderer(trackComponent.track).getDataManager();
         dataManager.setMinJunctionCoverage(newMinJunctionCoverage);
         trackComponent.track.clear();
         trackComponent.repaint();
@@ -273,14 +286,14 @@ public class SashimiPlot extends JFrame {
      * @param trackComponent
      * @param newMaxDepth
      */
-    private void setMaxCoverageDepth(TrackComponent<SpliceJunctionFinderTrack> trackComponent, int newMaxDepth) {
+    private void setMaxCoverageDepth(TrackComponent<SpliceJunctionTrack> trackComponent, int newMaxDepth) {
         getRenderer(trackComponent.track).setMaxDepth(newMaxDepth);
         repaint();
     }
 
-    private class JunctionTrackMouseAdapter extends TrackComponentMouseAdapter<SpliceJunctionFinderTrack> {
+    private class JunctionTrackMouseAdapter extends TrackComponentMouseAdapter<SpliceJunctionTrack> {
 
-        JunctionTrackMouseAdapter(TrackComponent<SpliceJunctionFinderTrack> trackComponent) {
+        JunctionTrackMouseAdapter(TrackComponent<SpliceJunctionTrack> trackComponent) {
             super(trackComponent);
         }
 
@@ -328,7 +341,7 @@ public class SashimiPlot extends JFrame {
             minJunctionCoverage.addActionListener(new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    IAlignmentDataManager dataManager = getRenderer(trackComponent.track).getDataManager();
+                    AlignmentDataManager dataManager = getRenderer(trackComponent.track).getDataManager();
                     SpliceJunctionHelper.LoadOptions loadOptions = dataManager.getSpliceJunctionLoadOptions();
 
                     String input = JOptionPane.showInputDialog("Set Minimum Junction Coverage", loadOptions.minJunctionCoverage);
@@ -378,19 +391,19 @@ public class SashimiPlot extends JFrame {
 
             ButtonGroup strandGroup = new ButtonGroup();
 
-            JRadioButtonMenuItem combineStrands = getStrandRadioButton("Combine Strands", SpliceJunctionFinderTrack.StrandOption.COMBINE);
+            JRadioButtonMenuItem combineStrands = getStrandRadioButton("Combine Strands", SpliceJunctionTrack.StrandOption.COMBINE);
             combineStrands.setToolTipText("Combine junctions from both strands -- best for non-strand preserving libraries.");
             strandGroup.add(combineStrands);
 
-            //  JRadioButtonMenuItem bothStrands = getStrandRadioButton("Both Strands", SpliceJunctionFinderTrack.StrandOption.BOTH);
+            //  JRadioButtonMenuItem bothStrands = getStrandRadioButton("Both Strands", SpliceJunctionTrack.StrandOption.BOTH);
             //  strandGroup.add(bothStrands);
             //  menu.add(bothStrands);
 
-            JRadioButtonMenuItem plusStrand = getStrandRadioButton("Forward Strand", SpliceJunctionFinderTrack.StrandOption.FORWARD);
+            JRadioButtonMenuItem plusStrand = getStrandRadioButton("Forward Strand", SpliceJunctionTrack.StrandOption.FORWARD);
             plusStrand.setToolTipText("Show only junctions on the forward read strand  (of first-in-pair for paired reads)");
             strandGroup.add(plusStrand);
 
-            JRadioButtonMenuItem minusStrand = getStrandRadioButton("Reverse Strand", SpliceJunctionFinderTrack.StrandOption.REVERSE);
+            JRadioButtonMenuItem minusStrand = getStrandRadioButton("Reverse Strand", SpliceJunctionTrack.StrandOption.REVERSE);
             plusStrand.setToolTipText("Show only junctions on the reverse read strand  (of first-in-pair for paired reads)");
             strandGroup.add(minusStrand);
 
@@ -448,15 +461,15 @@ public class SashimiPlot extends JFrame {
             return item;
         }
 
-        private JRadioButtonMenuItem getStrandRadioButton(String label, final SpliceJunctionFinderTrack.StrandOption option) {
+        private JRadioButtonMenuItem getStrandRadioButton(String label, final SpliceJunctionTrack.StrandOption option) {
 
             JRadioButtonMenuItem item = new JRadioButtonMenuItem(label);
-            item.setSelected(SpliceJunctionFinderTrack.getStrandOption() == option);
+            item.setSelected(SpliceJunctionTrack.getStrandOption() == option);
             item.addActionListener(new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    SpliceJunctionFinderTrack.setStrandOption(option);
-                    for (SpliceJunctionFinderTrack t : spliceJunctionTracks) {
+                    SpliceJunctionTrack.setStrandOption(option);
+                    for (SpliceJunctionTrack t : spliceJunctionTracks) {
                         t.clear();
                     }
                     repaint();
@@ -477,7 +490,7 @@ public class SashimiPlot extends JFrame {
         protected void handleDataClick(MouseEvent e) {
             trackComponent.track.handleDataClick(createTrackClickEvent(e));
             Set<IExon> selectedExon = trackComponent.track.getSelectedExons();
-            for (SpliceJunctionFinderTrack spliceTrack : spliceJunctionTracks) {
+            for (SpliceJunctionTrack spliceTrack : spliceJunctionTracks) {
                 getRenderer(spliceTrack).setSelectedExons(selectedExon);
             }
             repaint();
@@ -593,7 +606,7 @@ public class SashimiPlot extends JFrame {
             List<FeatureTrack> nonJunctionTracks = new ArrayList(IGV.getInstance().getFeatureTracks());
             Iterator iter = nonJunctionTracks.iterator();
             while(iter.hasNext()) {
-                if(iter.next() instanceof SpliceJunctionFinderTrack) iter.remove();
+                if(iter.next() instanceof SpliceJunctionTrack) iter.remove();
             }
 
             if (nonJunctionTracks.size() == 1) {
@@ -669,7 +682,7 @@ public class SashimiPlot extends JFrame {
         protected void paintComponent(Graphics g) {
             super.paintComponent(g);
             Rectangle visibleRect = getVisibleRect();
-            RenderContext context = new RenderContextImpl(this, (Graphics2D) g, frame, visibleRect);
+            RenderContext context = new RenderContext(this, (Graphics2D) g, frame, visibleRect);
             drawGenomicAxis(context, visibleRect);
         }
 

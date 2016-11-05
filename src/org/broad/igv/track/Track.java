@@ -1,13 +1,28 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
+
 /*
  * To change this template, choose Tools | Templates
  * and open the template in the editor.
@@ -49,7 +64,7 @@ public interface Track extends Persistable{
     String getId();
 
 
-    void load(RenderContext context);
+    void load(ReferenceFrame frame);
 
     /**
      * Return true if a track can be filtered by sample annotation.
@@ -75,12 +90,6 @@ public interface Track extends Persistable{
      * @param rect    the track bounds, relative to the enclosing DataPanel bounds.
      */
     void overlay(RenderContext context, Rectangle rect);
-
-    /**
-     * We store the y-coordinate at which this track was last rendered,
-     * to avoid repeating borders/scales/etc. This resets that value
-     */
-    void resetLastY();
 
     /**
      * Render the name of the track. Both the track and visible rectangles are supplied so the implementor
@@ -117,6 +126,8 @@ public interface Track extends Persistable{
     Collection<ResourceLocator> getResourceLocators();
 
     void setAttributeValue(String key, String value);
+
+    void removeAttribute(String key);
 
     String getAttributeValue(String attributeKey);
 
@@ -179,7 +190,7 @@ public interface Track extends Persistable{
 
     boolean isShowDataRange();
 
-    String getValueStringAt(String chr, double position, int y, ReferenceFrame frame);
+    String getValueStringAt(String chr, double position, int mouseX, int mouseY, ReferenceFrame frame);
 
     float getRegionScore(String chr, int start, int end, int zoom, RegionScoreType type, String frameName);
 

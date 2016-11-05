@@ -1,13 +1,28 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
+
 package org.broad.igv.util.collections;
 
 import java.util.*;
@@ -15,6 +30,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * A least-recently-used cache with a maximum size that can be altered.
+ *
  * @author jrobinso
  */
 public class LRUCache<K, V> {
@@ -30,7 +46,7 @@ public class LRUCache<K, V> {
         this.maxEntries = new AtomicInteger(max);
     }
 
-    public void setMaxEntries(int max){
+    public void setMaxEntries(int max) {
         this.maxEntries.set(max);
     }
 
@@ -75,7 +91,7 @@ public class LRUCache<K, V> {
         return getMap().keySet();
     }
 
-    public Collection<V> values(){
+    public Collection<V> values() {
         return getMap().values();
     }
 
@@ -85,6 +101,32 @@ public class LRUCache<K, V> {
 
     public void putAll(LRUCache<K, V> intervals) {
         this.putAll(intervals.getMap());
+    }
+
+    /**
+     * Test for memory leaks
+     */
+
+    public static void main(String[] args) {
+
+        LRUCache<String, int [] > cache = new LRUCache<String, int []>(10);
+
+
+        for (int i = 0; i < Integer.MAX_VALUE; i++) {
+
+            cache.put(String.valueOf(i), new int[1000]);
+
+            if(i % 1000000 == 0) {
+                // Get the Java runtime
+                Runtime runtime = Runtime.getRuntime();
+                // Run the garbage collector
+                runtime.gc();
+                // Calculate the used memory
+                long memory = runtime.totalMemory() - runtime.freeMemory();
+                System.out.println("Used memory (kb): " + memory / 1000);
+            }
+
+        }
     }
 }
 

@@ -1,16 +1,30 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
+
 package org.broad.igv.track;
 
-import com.google.common.eventbus.Subscribe;
 import org.apache.log4j.Logger;
 import org.broad.igv.Globals;
 import org.broad.igv.PreferenceManager;
@@ -20,6 +34,7 @@ import org.broad.igv.feature.*;
 import org.broad.igv.feature.genome.Genome;
 import org.broad.igv.feature.genome.GenomeManager;
 import org.broad.igv.renderer.*;
+import org.broad.igv.renderer.Renderer;
 import org.broad.igv.session.IGVSessionReader;
 import org.broad.igv.session.SubtlyImportant;
 import org.broad.igv.tools.FeatureSearcher;
@@ -27,6 +42,9 @@ import org.broad.igv.tools.motiffinder.MotifFinderSource;
 import org.broad.igv.ui.IGV;
 import org.broad.igv.ui.UIConstants;
 import org.broad.igv.ui.event.DataLoadedEvent;
+import org.broad.igv.ui.event.IGVEventBus;
+import org.broad.igv.ui.event.IGVEventObserver;
+import org.broad.igv.ui.event.ViewChange;
 import org.broad.igv.ui.panel.ReferenceFrame;
 import org.broad.igv.ui.util.MessageUtils;
 import org.broad.igv.util.*;
@@ -37,7 +55,6 @@ import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
-import javax.swing.*;
 import javax.xml.bind.JAXBElement;
 import javax.xml.bind.JAXBException;
 import javax.xml.bind.MarshalException;
@@ -61,7 +78,8 @@ import java.util.List;
  */
 @XmlType(factoryMethod = "getNextTrack")
 @XmlSeeAlso({VariantTrack.class, PluginFeatureSource.class, MotifFinderSource.class})
-public class FeatureTrack extends AbstractTrack {
+
+public class FeatureTrack extends AbstractTrack implements IGVEventObserver {
 
     private static Logger log = Logger.getLogger(FeatureTrack.class);
 
@@ -93,7 +111,7 @@ public class FeatureTrack extends AbstractTrack {
      */
     protected Map<String, PackedFeatures<IGVFeature>> packedFeaturesMap = Collections.synchronizedMap(new HashMap<String, PackedFeatures<IGVFeature>>());
 
-    private FeatureRenderer renderer;
+    private Renderer renderer;
 
     private DataRenderer coverageRenderer;
 
@@ -126,10 +144,12 @@ public class FeatureTrack extends AbstractTrack {
     //With this set to false, it chooses depending on the source
     private boolean forceLoadSync = false;
 
+    String trackLine = null;
+
     // TODO -- there are WAY too many constructors for this class
 
     /**
-     * Construct with no feature source.  Currently this is only used for the SpliceJunctionFinderTrack subclass.
+     * Construct with no feature source.  Currently this is only used for the SpliceJunctionTrack subclass.
      *
      * @param id
      * @param name
@@ -217,7 +237,28 @@ public class FeatureTrack extends AbstractTrack {
         this.renderer = path != null && path.endsWith("junctions.bed") ?
                 new SpliceJunctionRenderer() : new IGVFeatureRenderer();
 
+        IGVEventBus.getInstance().subscribe(DataLoadedEvent.class, this);
+
     }
+
+    /**
+     * Called after features are finished loading, which can be asynchronous
+     */
+    public void receiveEvent(Object e) {
+        if (e instanceof DataLoadedEvent) {
+            DataLoadedEvent event = (DataLoadedEvent) e;
+            if (IGV.hasInstance()) {
+                // TODO -- WHY IS THIS HERE????
+                //TODO Assuming this is necessary, there can be many data loaded events in succession,
+                //don't want to layout for each one
+                IGV.getInstance().layoutMainPanel();
+            }
+            event.getReferenceFrame().getEventBus().post( ViewChange.Result());
+        } else {
+            log.info("Unknown event type: " + e.getClass());
+        }
+    }
+
 
     @Override
     public boolean isFilterable() {
@@ -230,7 +271,7 @@ public class FeatureTrack extends AbstractTrack {
             return 0;
         }
         int rowHeight = getDisplayMode() == DisplayMode.SQUISHED ? squishedRowHeight : expandedRowHeight;
-        int minHeight = rowHeight * Math.max(1, getNumberOfFeatureLevels());
+        int minHeight = margin + rowHeight * Math.max(1, getNumberOfFeatureLevels());
         return Math.max(minHeight, super.getHeight());
     }
 
@@ -256,7 +297,7 @@ public class FeatureTrack extends AbstractTrack {
 
     public void setRendererClass(Class rc) {
         try {
-            renderer = (FeatureRenderer) rc.newInstance();
+            renderer = (Renderer) rc.newInstance();
         } catch (Exception ex) {
             log.error("Error instatiating renderer ", ex);
         }
@@ -363,7 +404,7 @@ public class FeatureTrack extends AbstractTrack {
     }
 
 
-    public FeatureRenderer getRenderer() {
+    public Renderer getRenderer() {
         if (renderer == null) {
             setRendererClass(IGVFeatureRenderer.class);
         }
@@ -375,15 +416,15 @@ public class FeatureTrack extends AbstractTrack {
      *
      * @param chr
      * @param position in genomic coordinates
-     * @param y        - pixel position in panel coordinates (i.e. not track coordinates)
+     * @param mouseX
      * @return
      */
-    public String getValueStringAt(String chr, double position, int y, ReferenceFrame frame) {
+    public String getValueStringAt(String chr, double position, int mouseX, int mouseY, ReferenceFrame frame) {
 
 
         if (showFeatures) {
 
-            List<Feature> allFeatures = getAllFeatureAt(position, y, frame);
+            List<Feature> allFeatures = getAllFeatureAt(position, mouseY, frame);
             if (allFeatures == null) {
                 return null;
             }
@@ -395,11 +436,11 @@ public class FeatureTrack extends AbstractTrack {
             for (Feature feature : allFeatures) {
                 if (feature != null && feature instanceof IGVFeature) {
                     if (!firstFeature) {
-                        buf.append("<br/>--------------<br/>");
+                        buf.append("<hr><br>");
                     }
 
                     IGVFeature igvFeature = (IGVFeature) feature;
-                    String vs = igvFeature.getValueString(position, null);
+                    String vs = igvFeature.getValueString(position, mouseX, null);
                     buf.append(vs);
 
                     if (IGV.getInstance().isShowDetailsOnClick()) {
@@ -480,7 +521,7 @@ public class FeatureTrack extends AbstractTrack {
      * @param frame
      * @return
      */
-    private List<Feature> getAllFeatureAt(double position, int y, ReferenceFrame frame) {
+    protected List<Feature> getAllFeatureAt(double position, int y, ReferenceFrame frame) {
         // Determine the level number (for expanded tracks)
         int featureRow = getFeatureRow(y);
         return getFeaturesAtPositionInFeatureRow(position, featureRow, frame);
@@ -493,18 +534,22 @@ public class FeatureTrack extends AbstractTrack {
      * @return
      */
     private int getFeatureRow(int y) {
-        // Determine the level number (for expanded tracks).
-        int featureRow = 0;
-        if (levelRects != null) {
-            for (int i = 0; i < levelRects.size(); i++) {
-                Rectangle r = levelRects.get(i);
-                if ((y >= r.y) && (y <= r.getMaxY())) {
-                    featureRow = i;
-                    break;
-                }
-            }
+
+        int rowHeight;
+        DisplayMode mode = getDisplayMode();
+        switch(mode) {
+            case SQUISHED:
+                rowHeight = getSquishedRowHeight();
+                break;
+            case EXPANDED:
+                rowHeight = getExpandedRowHeight();
+                break;
+            default:
+                rowHeight = getHeight();
         }
-        return featureRow;
+
+       return Math.max(0, Math.min(levelRects.size()-1, (int) ((y - this.getY() - this.margin)/ rowHeight)));
+
     }
 
     /**
@@ -643,20 +688,18 @@ public class FeatureTrack extends AbstractTrack {
         super.setDisplayMode(mode);
     }
 
-    @Override
-    public void load(RenderContext context) {
-        ReferenceFrame frame = context.getReferenceFrame();
+    public void load(ReferenceFrame frame) {
         PackedFeatures packedFeatures = packedFeaturesMap.get(frame.getName());
-        String chr = context.getChr();
-        int start = (int) context.getOrigin();
-        int end = (int) context.getEndLocation();
+        String chr = frame.getChrName();
+        int start = (int) frame.getOrigin();
+        int end = (int) frame.getEnd();
         if (packedFeatures == null || !packedFeatures.containsInterval(chr, start, end)) {
             try {
-                context.getReferenceFrame().getEventBus().unregister(FeatureTrack.this);
+                frame.getEventBus().unsubscribe(FeatureTrack.this);
             } catch (IllegalArgumentException e) {
                 //Don't care
             }
-            loadFeatures(frame.getChrName(), (int) frame.getOrigin(), (int) frame.getEnd(), context);
+            loadFeatures(frame.getChrName(), (int) frame.getOrigin(), (int) frame.getEnd(), frame);
         }
     }
 
@@ -706,13 +749,10 @@ public class FeatureTrack extends AbstractTrack {
     }
 
     protected void renderCoverage(RenderContext context, Rectangle inputRect) {
-        if (source == null) {
-            return;
-        }
 
         final String chr = context.getChr();
 
-        List<LocusScore> scores = chr.equals(Globals.CHR_ALL) ?
+        List<LocusScore> scores = (source != null && chr.equals(Globals.CHR_ALL)) ?
                 source.getCoverageScores(chr, (int) context.getOrigin(),
                         (int) context.getEndLocation(), context.getZoom()) :
                 null;
@@ -723,8 +763,7 @@ public class FeatureTrack extends AbstractTrack {
 
             // Keep text near the top of the track rectangle
             textRect.height = Math.min(inputRect.height, 20);
-            String message = chr.equals(Globals.CHR_ALL) ? "Zoom in to see features." :
-                    "Zoom in to see features, or right-click to increase Feature Visibility Window.";
+            String message = getZoomInMessage(chr);
             GraphicUtils.drawCenteredText(message, textRect, g);
 
         } else {
@@ -736,6 +775,11 @@ public class FeatureTrack extends AbstractTrack {
             setDataRange(new DataRange(0, 0, max));
             coverageRenderer.render(scores, context, inputRect, this);
         }
+    }
+
+    protected String getZoomInMessage(String chr) {
+        return chr.equals(Globals.CHR_ALL) ? "Zoom in to see features." :
+                "Zoom in to see features, or right-click to increase Feature Visibility Window.";
     }
 
     private float getMaxEstimate(List<LocusScore> scores) {
@@ -766,7 +810,7 @@ public class FeatureTrack extends AbstractTrack {
 
         //Attempt to load the relevant data. Note that there is no guarantee
         //the data will be loaded once preload exits, as loading may be asynchronous
-        load(context);
+        load(context.getReferenceFrame());
         PackedFeatures packedFeatures = packedFeaturesMap.get(context.getReferenceFrame().getName());
 
         if (packedFeatures == null || !packedFeatures.overlapsInterval(context.getChr(), (int) context.getOrigin(), (int) context.getEndLocation() + 1)) {
@@ -798,7 +842,7 @@ public class FeatureTrack extends AbstractTrack {
     protected void renderFeatureImpl(RenderContext context, Rectangle inputRect, PackedFeatures packedFeatures) {
 
 
-        FeatureRenderer renderer = getRenderer();
+        Renderer renderer = getRenderer();
         if (areFeaturesStacked()) {
             List<PackedFeatures.FeatureRow> rows = packedFeatures.getRows();
             if (rows != null && rows.size() > 0) {
@@ -809,11 +853,11 @@ public class FeatureTrack extends AbstractTrack {
                     levelRects.clear();
 
                     // Divide rectangle into equal height levels
-                    double h = inputRect.getHeight() / nLevels;
+                    double h = getDisplayMode() == DisplayMode.SQUISHED ? squishedRowHeight : expandedRowHeight;
                     Rectangle rect = new Rectangle(inputRect.x, inputRect.y, inputRect.width, (int) h);
                     int i = 0;
 
-                    renderer.reset();
+                    if(renderer instanceof FeatureRenderer) ((FeatureRenderer) renderer).reset();
                     for (PackedFeatures.FeatureRow row : rows) {
                         levelRects.add(new Rectangle(rect));
                         renderer.render(row.features, context, levelRects.get(i), this);
@@ -827,7 +871,7 @@ public class FeatureTrack extends AbstractTrack {
                 }
             }
         } else {
-            List<IGVFeature> features = packedFeatures.getFeatures();
+            List<Feature> features = packedFeatures.getFeatures();
             if (features != null) {
                 renderer.render(features, context, inputRect, this);
             }
@@ -843,7 +887,7 @@ public class FeatureTrack extends AbstractTrack {
      * @param start
      * @param end
      */
-    protected void loadFeatures(final String chr, final int start, final int end, final RenderContext context) {
+    protected void loadFeatures(final String chr, final int start, final int end, final ReferenceFrame referenceFrame) {
 
         boolean aSync = !forceLoadSync && !(source instanceof FeatureCollectionSource);
 
@@ -882,23 +926,23 @@ public class FeatureTrack extends AbstractTrack {
                         Iterator<Feature> iter = source.getFeatures(chr, expandedStart, expandedEnd);
                         if (iter == null) {
                             PackedFeatures pf = new PackedFeatures(chr, expandedStart, expandedEnd);
-                            packedFeaturesMap.put(context.getReferenceFrame().getName(), pf);
+                            packedFeaturesMap.put(referenceFrame.getName(), pf);
                         } else {
                             //dhmay putting a switch in for different packing behavior in splice junction tracks.
                             //This should probably be switched somewhere else, but that would require a big refactor.
                             PackedFeatures pf = new PackedFeatures(chr, expandedStart, expandedEnd, iter, getName());
-                            packedFeaturesMap.put(context.getReferenceFrame().getName(), pf);
+                            packedFeaturesMap.put(referenceFrame.getName(), pf);
                         }
                     }
 
                     //Now that features are loaded, we may need to repaint
                     //to accommodate.
-                    context.getReferenceFrame().getEventBus().post(new DataLoadedEvent(context));
+                    referenceFrame.getEventBus().post(new DataLoadedEvent(referenceFrame));
                 } catch (Exception e) {
                     // Mark the interval with an empty feature list to prevent an endless loop of load
                     // attempts.
                     PackedFeatures pf = new PackedFeatures(chr, start, end);
-                    packedFeaturesMap.put(context.getReferenceFrame().getName(), pf);
+                    packedFeaturesMap.put(referenceFrame.getName(), pf);
                     String msg = "Error loading features for interval: " + chr + ":" + start + "-" + end + " <br>" + e.toString();
                     MessageUtils.showMessage(msg);
                     log.error(msg, e);
@@ -913,7 +957,7 @@ public class FeatureTrack extends AbstractTrack {
         };
 
         if (aSync) {
-            context.getReferenceFrame().getEventBus().register(FeatureTrack.this);
+            referenceFrame.getEventBus().subscribe(DataLoadedEvent.class, FeatureTrack.this);
             LongRunningTask.submit(runnable);
         } else {
             runnable.run();
@@ -925,22 +969,6 @@ public class FeatureTrack extends AbstractTrack {
         this.forceLoadSync = forceLoadSync;
     }
 
-    /**
-     * Called after features are finished loading, which can be asynchronous
-     *
-     * @param event
-     */
-    @Subscribe
-    private void receiveDataLoaded(DataLoadedEvent event) {
-        if (IGV.hasInstance()) {
-            // TODO -- WHY IS THIS HERE????
-            //TODO Assuming this is necessary, there can be many data loaded events in succession,
-            //don't want to layout for each one
-            IGV.getInstance().layoutMainPanel();
-        }
-        JComponent panel = event.context.getPanel();
-        if (panel != null) panel.repaint();
-    }
 
     /**
      * Return the nextLine or previous feature relative to the center location.
@@ -1105,5 +1133,31 @@ public class FeatureTrack extends AbstractTrack {
         this.packedFeaturesMap.clear();
     }
 
+    /**
+     * Return currently loaded features.  Used to export features to a file.
+     *
+     * @param frame
+     * @return
+     */
+    public List<Feature> getVisibleFeatures(ReferenceFrame frame) {
+        PackedFeatures packedFeatures = packedFeaturesMap.get(frame.getName());
+        return (packedFeatures == null) ? Collections.emptyList() : packedFeatures.getFeatures();
+
+
+    }
+
+
+    public void setTrackLine(String trackLine) {
+        this.trackLine = trackLine;
+    }
+
+    /**
+     * Return "track" line information for exporting features to a file.  Default is null, subclasses may override.
+     *
+     * @return
+     */
+    public String getExportTrackLine() {
+        return trackLine;
+    }
 }
 

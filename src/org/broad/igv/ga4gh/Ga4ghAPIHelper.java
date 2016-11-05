@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.ga4gh;
@@ -42,7 +56,8 @@ public class Ga4ghAPIHelper {
 
     public static final Ga4ghProvider GA4GH_GOOGLE_PROVIDER = new Ga4ghProvider(
             "Google",
-            "https://www.googleapis.com/genomics/v1beta2",
+            //"https://www.googleapis.com/genomics/v1beta2",
+              "https://genomics.googleapis.com/v1",
             "AIzaSyC-dujgw4P1QvNd8i_c-I-S_P1uxVZzn0w",
             Arrays.asList(
                     new Ga4ghDataset("10473108253681171589", "1000 Genomes", "hg19"),
@@ -86,9 +101,9 @@ public class Ga4ghAPIHelper {
                         ", \"pageSize\":" + maxResults +
                         "}";
 
-                String result = doPost(provider, "/readgroupsets/search", contentToPost, null); //"fields=readsets(id,name, fileData),nextPageToken");
+                String result = doPost(provider, "/readgroupsets/search", contentToPost, null, true); //"fields=readsets(id,name, fileData),nextPageToken");
 
-                if(result == null) return null;
+                if (result == null) return null;
 
                 JsonParser parser = new JsonParser();
                 JsonObject obj = parser.parse(result).getAsJsonObject();
@@ -106,7 +121,7 @@ public class Ga4ghAPIHelper {
                 if (readsets.size() >= maxResults) break;
 
                 pageToken = obj.getAsJsonPrimitive("nextPageToken");
-                if (pageToken == null) break;
+                if (pageToken == null || pageToken.getAsString().equals("")) break;
             }
 
             Collections.sort(readsets, new Comparator<Ga4ghReadset>() {
@@ -141,9 +156,9 @@ public class Ga4ghAPIHelper {
                         ", \"pageSize\":" + maxResults +
                         "}";
 
-                String result = doPost(provider, "/references/search", contentToPost, null); //"fields=readsets(id,name, fileData),nextPageToken");
+                String result = doPost(provider, "/references/search", contentToPost, null, true); //"fields=readsets(id,name, fileData),nextPageToken");
 
-                if(result == null) return null;
+                if (result == null) return null;
 
                 JsonParser parser = new JsonParser();
                 JsonObject obj = parser.parse(result).getAsJsonObject();
@@ -158,7 +173,7 @@ public class Ga4ghAPIHelper {
                 if (references.size() >= maxResults) break;
 
                 pageToken = obj.getAsJsonPrimitive("nextPageToken");
-                if (pageToken == null) break;
+                if (pageToken == null || pageToken.getAsString().equals("")) break;
             }
 
             referenceCache.put(referenceSetId, references);
@@ -168,13 +183,14 @@ public class Ga4ghAPIHelper {
     }
 
 
-    public static List<Alignment> searchReads(Ga4ghProvider provider, String readGroupSetId, String chr, int start, int end) throws IOException {
+    public static List<Alignment> searchReads(Ga4ghProvider provider, String readGroupSetId, String chr, int start, int end, boolean handleError) throws IOException {
 
         List<Alignment> alignments = new ArrayList<Alignment>(10000);
         int maxPages = 10000;
         JsonPrimitive pageToken = null;
         StringBuffer result = new StringBuffer();
 
+        int counter = 0;
         while (maxPages-- > 0) {
             String contentToPost = "{" +
                     "\"readGroupSetIds\": [\"" + readGroupSetId + "\"]" +
@@ -182,10 +198,10 @@ public class Ga4ghAPIHelper {
                     ", \"start\": \"" + start + "\"" +
                     ", \"end\": \"" + end + "\"" +
                     ", \"pageSize\": \"10000\"" +
-                     (pageToken == null ? "" : ", \"pageToken\": " + pageToken) +
+                    (pageToken == null ? "" : ", \"pageToken\": " + pageToken) +
                     "}";
 
-            String readString = doPost(provider, "/reads/search", contentToPost, "");
+            String readString = doPost(provider, "/reads/search", contentToPost, "", handleError);
 
             if (readString == null) {
                 return null;
@@ -203,23 +219,20 @@ public class Ga4ghAPIHelper {
                 alignments.add(alignment);
             }
 
-            //System.out.println("# reads = " + reads.size());
-
             pageToken = obj.getAsJsonPrimitive("nextPageToken");
-            if (pageToken == null) break;
+            if (pageToken == null || pageToken.getAsString().equals("")) break;
 
         }
 
-        //System.out.println("# pages= " + (10000 - maxPages));
 
         return alignments;
 
     }
 
 
-    private static String doPost(Ga4ghProvider provider, String command, String content, String fields) throws IOException {
+    private static String doPost(Ga4ghProvider provider, String command, String content, String fields, boolean handleError) throws IOException {
 
-        String authKey = provider.getAuthKey();
+        String authKey = provider.getApiKey();
         String baseURL = provider.getBaseURL();
         String token = OAuthUtils.getInstance().getAccessToken();
 
@@ -275,7 +288,9 @@ public class Ga4ghAPIHelper {
             return sb.toString();
         } catch (Exception e) {
 
-            handleHttpException(url, connection, e);
+            if (handleError) {
+                handleHttpException(url, connection, e);
+            }
 
             return null;
         }
@@ -283,10 +298,12 @@ public class Ga4ghAPIHelper {
 
     static void handleHttpException(URL url, HttpURLConnection connection, Exception e) throws IOException {
         int rs = connection.getResponseCode();
-        if(rs == 404) {
+        String sb = getErrorMessage(connection);
+        if (sb != null && sb.length() > 0) {
+            MessageUtils.showErrorMessage(sb, e);
+        } else if (rs == 404) {
             MessageUtils.showErrorMessage("The requested resource was not found<br>" + url, e);
-        }
-        else if (rs == 401 || rs == 403) {
+        } else if (rs == 401 || rs == 403) {
             displayAuthorizationDialog(url.getHost());
         } else {
             MessageUtils.showErrorMessage("Error accessing resource", e);
@@ -294,9 +311,32 @@ public class Ga4ghAPIHelper {
         }
     }
 
+    private static String getErrorMessage(HttpURLConnection connection) throws IOException {
+        BufferedReader br = new BufferedReader(new InputStreamReader(new GZIPInputStream(connection.getErrorStream())));
+        StringBuffer sb = new StringBuffer();
+        String str = br.readLine();
+        while (str != null) {
+            sb.append(str);
+            str = br.readLine();
+        }
+        br.close();
+
+        JsonParser parser = new JsonParser();
+        JsonObject obj = parser.parse(sb.toString()).getAsJsonObject();
+
+        JsonObject errorObject = obj.getAsJsonObject("error");
+        if (errorObject != null) {
+            JsonPrimitive msg = errorObject.getAsJsonPrimitive("message");
+            if (msg != null) return msg.getAsString();
+        }
+
+
+        return sb.toString();
+    }
+
     static void displayAuthorizationDialog(String host) {
 
-        String message = "The requested resource at '"  + host + "' requires authorization.";
+        String message = "The requested resource at '" + host + "' requires authorization.";
         Icon icon = null;
         int option = JOptionPane.showOptionDialog(IGV.getMainFrame(),
                 message,
@@ -308,7 +348,7 @@ public class Ga4ghAPIHelper {
                 JOptionPane.YES_OPTION
         );
 
-        if(option == 1) {
+        if (option == 1) {
             try {
                 OAuthUtils.getInstance().openAuthorizationPage();
             } catch (Exception e) {

@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 /*
@@ -23,13 +37,9 @@ import org.apache.log4j.Logger;
 import org.broad.igv.Globals;
 import org.broad.igv.PreferenceManager;
 import org.broad.igv.feature.Chromosome;
-import org.broad.igv.feature.FeatureUtils;
-import org.broad.igv.feature.exome.ExomeBlock;
-import org.broad.igv.feature.exome.ExomeReferenceFrame;
 import org.broad.igv.feature.genome.ChromosomeCoordinate;
 import org.broad.igv.feature.genome.Genome;
 import org.broad.igv.feature.genome.GenomeManager;
-import org.broad.igv.renderer.GraphicUtils;
 import org.broad.igv.ui.FontManager;
 import org.broad.igv.ui.UIConstants;
 import org.broad.igv.ui.WaitCursorManager;
@@ -41,11 +51,8 @@ import javax.swing.*;
 import javax.swing.event.MouseInputAdapter;
 import java.awt.*;
 import java.awt.event.MouseEvent;
-import java.awt.geom.Rectangle2D;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -127,18 +134,9 @@ public class RulerPanel extends JPanel {
 
         if (isWholeGenomeView()) {
             drawChromosomeTicks(g);
-        } else if (FrameManager.isExomeMode()) {
-            // TODO -- hack,
-            ExomeReferenceFrame exomeFrame = (ExomeReferenceFrame) FrameManager.getDefaultFrame();
-            drawExomeBlocks(g, exomeFrame);
-            drawExomeGenes(g, exomeFrame);
-            if (drawSpan) {
-                drawSpan(g);
-            }
-
         } else {
 
-                drawTicks(g);
+            drawTicks(g);
 
             if (drawSpan) {
                 drawSpan(g);
@@ -158,12 +156,8 @@ public class RulerPanel extends JPanel {
         g.setFont(spanFont);
 
 
-        int range;
-        if (FrameManager.isExomeMode()) {
-            range = (int) (frame.getEnd() - frame.getOrigin()) + 1;
-        } else {
-            range = (int) (frame.getScale() * w) + 1;
-        }
+        int range = (int) (frame.getScale() * w) + 1;
+
 
         // TODO -- hack, assumes location unit for whole genome is kilo-base
         boolean scaleInKB = frame.getChrName().equals(Globals.CHR_ALL);
@@ -320,135 +314,6 @@ public class RulerPanel extends JPanel {
         }
     }
 
-    private void drawExomeBlocks(Graphics g, ExomeReferenceFrame frame) {
-
-        String chr = frame.getChrName();
-        List<ExomeBlock> blocks = frame.getBlocks(chr);
-        int idx = frame.getFirstBlockIdx();
-        ExomeBlock b;
-
-        Rectangle visibleRect = this.getVisibleRect();
-
-
-        int lastPStart = -1;
-        int pStart;
-        int pEnd;
-        int exomeOrigin = frame.getExomeOrigin();
-        int visibleBlockCount = 0;
-        int blockGap = 0; // TODO --
-        int top = visibleRect.y + visibleRect.height - 10;
-        do {
-            b = blocks.get(idx);
-
-            pStart = (int) ((b.getExomeStart() - exomeOrigin) / frame.getScale()) + visibleBlockCount * blockGap;
-            pEnd = (int) ((b.getExomeEnd() - exomeOrigin) / frame.getScale()) + visibleBlockCount * blockGap;
-
-            // Don't draw over previously drawn region -- can happen when zoomed out.
-            if (pEnd > lastPStart) {
-
-                lastPStart = pStart;
-                if (pEnd == pStart) pEnd++;
-
-
-                b.setScreenBounds(pStart, pEnd);
-
-                Rectangle rect = new Rectangle(pStart, top, pEnd - pStart, 10);
-
-
-                Graphics2D exomeGraphics = (Graphics2D) g.create();
-
-
-                Color c = idx % 2 == 0 ? grey1 : grey2;
-
-                exomeGraphics.setColor(c);
-                exomeGraphics.fill(rect);
-                //GraphicUtils.drawCenteredText(String.valueOf(idx), rect, exomeGraphics);
-
-
-                visibleBlockCount++;
-            }
-            idx++;
-
-
-        }
-        while ((pStart < visibleRect.x + visibleRect.width) && idx < blocks.size());
-
-
-    }
-
-    private void drawExomeGenes(Graphics g, ExomeReferenceFrame frame) {
-
-        mouseRects.clear();
-
-        String chr = frame.getChrName();
-        List<ExomeReferenceFrame.Gene> genes = frame.getGenes(chr);
-
-        int idx = FeatureUtils.getIndexBefore(frame.getOrigin(), genes);
-
-        if(idx < 0) idx = 0;
-
-        Rectangle visibleRect = this.getVisibleRect();
-        FontMetrics fm = g.getFontMetrics();
-
-        int lastPStart = -1;
-        int pStart;
-        int pEnd;
-        int exomeOrigin = frame.getExomeOrigin();
-        int visibleBlockCount = 0;
-        int blockGap = 0; // TODO --
-        int top = visibleRect.y + visibleRect.height - 30;
-        do {
-            ExomeReferenceFrame.Gene gene = genes.get(idx);
-
-            double exomeStart = frame.genomeToExomePosition(gene.getStart());
-            double exomeEnd = frame.genomeToExomePosition(gene.getEnd());
-
-            pStart = (int) ((exomeStart - exomeOrigin) / frame.getScale()) + visibleBlockCount * blockGap;
-            pEnd = (int) ((exomeEnd - exomeOrigin) / frame.getScale()) + visibleBlockCount * blockGap;
-
-            // Don't draw over previously drawn region -- can happen when zoomed out.
-            if (pEnd > lastPStart) {
-
-                lastPStart = pStart;
-                if (pEnd == pStart) pEnd++;
-
-                Rectangle rect = new Rectangle(pStart, top, pEnd - pStart, 20);
-
-
-                Graphics2D exomeGraphics = (Graphics2D) g.create();
-//Shape clip = exomeGraphics.getClip();
-
-                Color c = idx % 2 == 0 ? gene1 : gene2;
-
-                exomeGraphics.setColor(c);
-                exomeGraphics.fill(rect);
-
-                Rectangle2D sb = fm.getStringBounds(gene.getName(), g);
-                if (sb.getWidth() < rect.getWidth()) {
-                    exomeGraphics.setColor(Color.black);
-                    GraphicUtils.drawCenteredText(gene.getName(), rect, exomeGraphics);
-                }
-
-                mouseRects.add(new MouseRect(rect, gene.getName()));
-
-                visibleBlockCount++;
-            }
-            idx++;
-
-
-        }
-        while ((pStart < visibleRect.x + visibleRect.width) && idx < genes.size());
-
-        Collections.sort(mouseRects, new Comparator<MouseRect>() {
-            @Override
-            public int compare(MouseRect mr1, MouseRect mr2) {
-                return mr1.width() - mr2.width();
-            }
-        });
-
-
-    }
-
     public static String formatNumber(double position) {
 
         //NumberFormatter f = new NumberFormatter();
@@ -517,22 +382,7 @@ public class RulerPanel extends JPanel {
                         for (final ClickLink link : chromosomeRects) {
                             if (link.region.contains(e.getPoint())) {
                                 final String chrName = link.value;
-                                frame.getEventBus().post(new ViewChange.ChromosomeChangeCause(RulerPanel.this, chrName));
-
-//                                NamedRunnable runnable = new NamedRunnable() {
-//
-//                                    public void run() {
-//                                        final String chrName = link.value;
-//                                        frame.getEventBus().post(new ViewChange.ChromosomeChangeCause(RulerPanel.this, chrName));
-//                                        frame.recordHistory();
-//                                    }
-//
-//                                    public String getName() {
-//                                        return "Select chromosome: " + chrName;
-//                                    }
-//                                };
-//
-//                                LongRunningTask.submit(runnable);
+                                frame.changeChromosome( chrName, true);
                             }
                         }
                     }
@@ -715,7 +565,6 @@ public class RulerPanel extends JPanel {
             this.tooltipText = tooltipText;
         }
     }
-
 
 
     static class MouseRect {

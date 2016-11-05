@@ -1,13 +1,28 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
+
 /*
  * To change this template, choose Tools | Templates
  * and open the template in the editor.
@@ -21,6 +36,7 @@ import org.broad.igv.ui.IGV;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.InputEvent;
 import java.lang.reflect.InvocationTargetException;
 
 
@@ -38,7 +54,7 @@ public class UIUtilities {
      *
      * @param dialogTitle
      * @param defaultColor The currently selected color
-     * @return  The color the user selected, or null if none/cancelled
+     * @return The color the user selected, or null if none/cancelled
      */
     public static Color showColorChooserDialog(String dialogTitle, Color defaultColor) {
 
@@ -157,5 +173,43 @@ public class UIUtilities {
                 log.error("Error invoking runnable", e);
             }
         }
+    }
+
+    public static String bringToFront() {
+        // Trick to force window to front, the setAlwaysOnTop works on a Mac,  toFront() does nothing.
+        Frame mainFrame = IGV.getMainFrame();
+        mainFrame.toFront();
+        mainFrame.setAlwaysOnTop(true);
+        mainFrame.setAlwaysOnTop(false);
+        return "OK";
+    }
+
+    /**
+     * This crazy hack is the only solution that works on a MAC when attempting to show the glass pane.  Without
+     * this the glass pane, and more importantly its wait cursor,  will not appear until you click the window
+     * header.
+     */
+    public static void activateMainFrame() {
+
+        Frame mainFrame = IGV.getMainFrame();
+
+        try {
+            //remember the last location of mouse
+            final Point oldMouseLocation = MouseInfo.getPointerInfo().getLocation();
+
+            //simulate a mouse click on title bar of window
+            Robot robot = new Robot();
+            robot.mouseMove(mainFrame.getX() + 200, mainFrame.getY() + 5);
+            robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
+            robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
+
+            //move mouse to old location
+            robot.mouseMove((int) oldMouseLocation.getX(), (int) oldMouseLocation.getY());
+        } catch (Exception ex) {
+            //just ignore exception, or you can handle it as you want
+        } finally {
+
+        }
+
     }
 }

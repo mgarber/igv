@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 /*
@@ -17,8 +31,6 @@
 package org.broad.igv.batch;
 
 import com.google.common.collect.Iterables;
-import com.google.common.eventbus.EventBus;
-import com.google.common.eventbus.Subscribe;
 import org.apache.log4j.Logger;
 import org.broad.igv.Globals;
 import org.broad.igv.PreferenceManager;
@@ -26,15 +38,20 @@ import org.broad.igv.dev.api.batch.Command;
 import org.broad.igv.feature.Locus;
 import org.broad.igv.feature.RegionOfInterest;
 import org.broad.igv.feature.genome.GenomeManager;
+import org.broad.igv.ga4gh.Ga4ghAPIHelper;
+import org.broad.igv.ga4gh.OAuthUtils;
 import org.broad.igv.renderer.DataRange;
 import org.broad.igv.sam.AlignmentTrack;
 import org.broad.igv.track.RegionScoreType;
 import org.broad.igv.track.Track;
 import org.broad.igv.ui.IGV;
 import org.broad.igv.ui.event.DataLoadedEvent;
+import org.broad.igv.ui.event.IGVEventBus;
+import org.broad.igv.ui.event.IGVEventObserver;
 import org.broad.igv.ui.panel.FrameManager;
 import org.broad.igv.ui.util.MessageUtils;
 import org.broad.igv.ui.util.SnapshotUtilities;
+import org.broad.igv.ui.util.UIUtilities;
 import org.broad.igv.util.*;
 
 import java.awt.*;
@@ -136,7 +153,7 @@ public class CommandExecutor {
                 } else if (cmd.equalsIgnoreCase("sort")) {
                     sort(param1, param2, param3, param4);
                 } else if (cmd.equalsIgnoreCase("group")) {
-                    group(param1);
+                    group(param1, param2);
                 } else if (cmd.equalsIgnoreCase("collapse")) {
                     String trackName = parseTrackName(param1);
                     igv.setTrackDisplayMode(Track.DisplayMode.COLLAPSED, trackName);
@@ -156,7 +173,7 @@ public class CommandExecutor {
                 } else if (cmd.equalsIgnoreCase("maxpanelheight") && param1 != null) {
                     return setMaxPanelHeight(param1);
                 } else if (cmd.equalsIgnoreCase("tofront")) {
-                    return bringToFront();
+                    return UIUtilities.bringToFront();
                 } else if (cmd.equalsIgnoreCase("viewaspairs")) {
                     return setViewAsPairs(param1, param2);
                 } else if (cmd.equalsIgnoreCase("samplingwindowsize")) {
@@ -175,6 +192,17 @@ public class CommandExecutor {
                     return Globals.VERSION;
                 } else if (cmd.equals("exit")) {
                     System.exit(0);
+                } else if (cmd.equals("zoomin")) {
+                    FrameManager.incrementZoom(1);
+                } else if (cmd.equals("zoomout")) {
+                    FrameManager.incrementZoom(-1);
+                } else if ("oauth".equals(cmd)) {
+                    try {
+                        OAuthUtils.getInstance().setAccessToken(param1);
+                    } catch (IOException e1) {
+                        log.error(e1);
+                        return e1.getMessage();
+                    }
                 } else {
                     result = "UNKOWN COMMAND: " + command;
                     log.error(result);
@@ -195,10 +223,15 @@ public class CommandExecutor {
             }
             log.debug("Finished sleeping");
 
-        } catch (IOException e) {
+        } catch (
+                IOException e
+                )
+
+        {
             log.error(e);
             result = "Error: " + e.getMessage();
         }
+
         log.info(result);
 
         return result;
@@ -359,7 +392,7 @@ public class CommandExecutor {
     /**
      * Load function for port and batch script
      *
-     * @param fileString
+     * @param fileString path to file
      * @param param2
      * @param param3
      * @return
@@ -386,7 +419,7 @@ public class CommandExecutor {
                 index = param.substring(6);
             } else if (param != null && param.startsWith("coverage=")) {
                 coverage = param.substring(9);
-            } else if(param != null && param.startsWith("format=")) {
+            } else if (param != null && param.startsWith("format=")) {
                 format = param.substring(7);
             }
         }
@@ -511,13 +544,6 @@ public class CommandExecutor {
             } else {
                 ResourceLocator rl = new ResourceLocator(f);
 
-                if (rl.isLocal()) {
-                    File file = new File(rl.getPath());
-                    if (!file.exists()) {
-                        return "Error: " + f + " does not exist.";
-                    }
-                }
-
                 if (names != null) {
                     rl.setName(names.get(fi));
                 }
@@ -527,14 +553,27 @@ public class CommandExecutor {
                 if (coverageFiles != null) {
                     rl.setCoverage(coverageFiles.get(fi));
                 }
-                if(formats != null) {
+                if (formats != null) {
                     String format = formats.get(fi);
-                    if(!format.startsWith(".")) format = "." + format;
+                    if (!("ga4gh".equals(format)) && !format.startsWith(".")) format = "." + format;
                     rl.setType(format);
                 }
-                if (params != null) {
-                    String trackLine = createTrackLine(params);
-                    rl.setTrackLine(trackLine);
+
+                if ("ga4gh".equals(rl.getType())) {
+                    // TODO -- distinguish reads and variants
+                    rl.setAttribute("provider", Ga4ghAPIHelper.GA4GH_GOOGLE_PROVIDER);
+                } else {
+                    if (params != null) {
+                        String trackLine = createTrackLine(params);
+                        rl.setTrackLine(trackLine);
+                    }
+
+                    if (rl.isLocal()) {
+                        File file = new File(rl.getPath());
+                        if (!file.exists()) {
+                            return "Error: " + f + " does not exist.";
+                        }
+                    }
                 }
                 fileLocators.add(rl);
             }
@@ -585,15 +624,9 @@ public class CommandExecutor {
                     //Alignment tracks load alignment data asynchronously from the track
 
                     //Since sorting applies to all tracks, we only need to have 1 handler
-                    AlignmentTrack track = null;
-                    try {
-                        track = Iterables.filter(igv.getAllTracks(), AlignmentTrack.class).iterator().next();
-                        EventBus bus = track.getDataManager().getEventBus();
-                        bus.register(new SortAlignmentsHandler(igv, bus, sortOption, sortTag));
-                    } catch (NoSuchElementException e) {
-                        //No alignment tracks found.
-                        log.warn("Sort argument provided but no alignment tracks found");
-                    }
+                    //TODO -- the use of the bus here is, essentially, an attempt to simulate a promise,  do().then()
+                    IGVEventBus.getInstance().subscribe(DataLoadedEvent.class, new SortAlignmentsHandler(igv, sortOption, sortTag));
+
                 } catch (InterruptedException e) {
                     log.error(e.getMessage(), e);
                 } catch (ExecutionException e) {
@@ -654,15 +687,6 @@ public class CommandExecutor {
 //        return buf.toString();
     }
 
-
-    private String bringToFront() {
-        // Trick to force window to front, the setAlwaysOnTop works on a Mac,  toFront() does nothing.
-        Frame mainFrame = IGV.getMainFrame();
-        mainFrame.toFront();
-        mainFrame.setAlwaysOnTop(true);
-        mainFrame.setAlwaysOnTop(false);
-        return "OK";
-    }
 
     /**
      * Set a directory to deposit image snapshots
@@ -762,6 +786,7 @@ public class CommandExecutor {
 
 
     private void sort(String sortArg, String locusString, String param3, String param4) {
+
         RegionScoreType regionSortOption = getRegionSortOption(sortArg);
         String tag = "";
         if (regionSortOption != null) {
@@ -792,15 +817,18 @@ public class CommandExecutor {
                     tag = param3;
                 }
             }
+
             //Convert from 1-based to 0-based
             if (location != null) location--;
+
             igv.sortAlignmentTracks(getAlignmentSortOption(sortArg), location, tag);
+
         }
         igv.repaintDataPanels();
     }
 
-    private void group(String groupArg) {
-        igv.groupAlignmentTracks(getAlignmentGroupOption(groupArg));
+    private void group(String groupArg, String tagArg) {
+        igv.groupAlignmentTracks(getAlignmentGroupOption(groupArg), tagArg);
         igv.repaintDataPanels();
     }
 
@@ -891,42 +919,63 @@ public class CommandExecutor {
             return AlignmentTrack.SortOption.FIRST_OF_PAIR_STRAND;
         } else if (str.equalsIgnoreCase("mateChr")) {
             return AlignmentTrack.SortOption.MATE_CHR;
+        } else {
+            try {
+                return AlignmentTrack.SortOption.valueOf(str.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                log.error("Unknown sort option: " + str);
+                return AlignmentTrack.SortOption.NUCLEOTIDE;
+            }
         }
-        return AlignmentTrack.SortOption.NUCLEOTIDE;
+
     }
+
+    //      STRAND, SAMPLE, READ_GROUP, FIRST_OF_PAIR_STRAND, TAG, PAIR_ORIENTATION, MATE_CHROMOSOME, NONE, SUPPLEMENTARY
 
     private static AlignmentTrack.GroupOption getAlignmentGroupOption(String str) {
-        if (str.equalsIgnoreCase("strand")) {
+        if (str == null || str.length() == 0) {
+            return AlignmentTrack.GroupOption.NONE;
+        } else if (str.equalsIgnoreCase("strand")) {
             return AlignmentTrack.GroupOption.STRAND;
-
         } else if (str.equalsIgnoreCase("sample")) {
             return AlignmentTrack.GroupOption.SAMPLE;
-
+        } else if (str.equalsIgnoreCase("library")) {
+            return AlignmentTrack.GroupOption.LIBRARY;
         } else if (str.equalsIgnoreCase("readGroup") || str.equalsIgnoreCase("read_group")) {
             return AlignmentTrack.GroupOption.READ_GROUP;
+        } else {
+            try {
+                return AlignmentTrack.GroupOption.valueOf(str.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                log.error("Unknown group by option: " + str);
+                return AlignmentTrack.GroupOption.NONE;
+            }
+
         }
-        return AlignmentTrack.GroupOption.NONE;
+
     }
 
-    private static class SortAlignmentsHandler {
+    private static class SortAlignmentsHandler implements IGVEventObserver {
 
         private IGV igv = null;
-        private EventBus bus = null;
         private AlignmentTrack.SortOption sortOption;
         private String sortTag;
 
-        SortAlignmentsHandler(IGV igv, EventBus bus, AlignmentTrack.SortOption sortOption, String sortTag) {
+        SortAlignmentsHandler(IGV igv, AlignmentTrack.SortOption sortOption, String sortTag) {
             this.igv = igv;
-            this.bus = bus;
             this.sortOption = sortOption;
             this.sortTag = sortTag;
+
+            IGVEventBus.getInstance().subscribe(DataLoadedEvent.class, this);
         }
 
-        @Subscribe
-        public void received(DataLoadedEvent event) {
+
+        @Override
+        public void receiveEvent(Object event) {
             boolean sorted = igv.sortAlignmentTracks(sortOption, sortTag);
-            if (sorted) this.bus.unregister(this);
+            if (sorted) {
+                IGVEventBus.getInstance().unsubscribe(this);
+            }
         }
-
     }
 }

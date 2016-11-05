@@ -1,19 +1,26 @@
 /*
- * Copyright (c) 2007-2011 by The Broad Institute of MIT and Harvard.  All Rights Reserved.
+ * The MIT License (MIT)
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * THE SOFTWARE IS PROVIDED "AS IS." THE BROAD AND MIT MAKE NO REPRESENTATIONS OR
- * WARRANTES OF ANY KIND CONCERNING THE SOFTWARE, EXPRESS OR IMPLIED, INCLUDING,
- * WITHOUT LIMITATION, WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
- * PURPOSE, NONINFRINGEMENT, OR THE ABSENCE OF LATENT OR OTHER DEFECTS, WHETHER
- * OR NOT DISCOVERABLE.  IN NO EVENT SHALL THE BROAD OR MIT, OR THEIR RESPECTIVE
- * TRUSTEES, DIRECTORS, OFFICERS, EMPLOYEES, AND AFFILIATES BE LIABLE FOR ANY DAMAGES
- * OF ANY KIND, INCLUDING, WITHOUT LIMITATION, INCIDENTAL OR CONSEQUENTIAL DAMAGES,
- * ECONOMIC DAMAGES OR INJURY TO PROPERTY AND LOST PROFITS, REGARDLESS OF WHETHER
- * THE BROAD OR MIT SHALL BE ADVISED, SHALL HAVE OTHER REASON TO KNOW, OR IN FACT
- * SHALL KNOW OF THE POSSIBILITY OF THE FOREGOING.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 
@@ -126,7 +133,7 @@ public class HeatmapLegendPanel extends LegendPanel {
         });
     }
 
-    protected void paintLegend(Graphics g) {
+    protected void paintLegend(Graphics2D g) {
         if (orientation == Orientation.HORIZONTAL) {
             paintHorizontal(g);
         } else {
@@ -134,107 +141,85 @@ public class HeatmapLegendPanel extends LegendPanel {
         }
     }
 
-    protected void paintHorizontal(Graphics g) {
+    protected void paintHorizontal(Graphics2D g2D) {
 
         DecimalFormat formatter = new DecimalFormat("0.0");
 
-        Graphics2D g2D = null;
+        g2D.setFont(FontManager.getFont(10));
 
-        try {
-            g2D = (Graphics2D) g.create();
-            if (PreferenceManager.getInstance().getAsBoolean(PreferenceManager.ENABLE_ANTIALISING)) {
-                g2D.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-            }
-            g2D.setFont(FontManager.getFont(10));
+        int npts = 5;
+        double max = colorScale.getMaximum();
+        double min = colorScale.getMinimum();
 
-            int npts = 5;
-            double max = colorScale.getMaximum();
-            double min = colorScale.getMinimum();
+        int w = getWidth() - 20;
+        double dx = ((double) w) / npts;
+        double dxj = dx / 10;
+        double delta = (max - min) / npts;
+        double deltaj = delta / 10;
 
-            int w = getWidth() - 20;
-            double dx = ((double) w) / npts;
-            double dxj = dx / 10;
-            double delta = (max - min) / npts;
-            double deltaj = delta / 10;
+        for (int i = 0; i < npts + 1; i++) {
+            for (int j = i * 10; j < i * 10 + 10; j++) {
+                double val = min + j * deltaj;
 
-            for (int i = 0; i < npts + 1; i++) {
-                for (int j = i * 10; j < i * 10 + 10; j++) {
-                    double val = min + j * deltaj;
+                Color c = colorScale.getColor((float) val);
 
-                    Color c = colorScale.getColor((float) val);
+                g2D.setColor(c);
 
-                    g2D.setColor(c);
+                int x0 = (int) (j * dxj);
+                int x1 = (int) ((j + 1) * dxj);
 
-                    int x0 = (int) (j * dxj);
-                    int x1 = (int) ((j + 1) * dxj);
-
-                    g2D.fillRect(x0, 0, (x1 - x0), (int) (getHeight() / 2));
-                }
-
-                double labelVal = min + i * delta;
-                int x0 = (int) (i * dx);
-
-                g2D.setColor(Color.BLACK);
-                g2D.drawString(formatter.format(labelVal), x0, (int) getHeight() - 5);
+                g2D.fillRect(x0, 0, (x1 - x0), (int) (getHeight() / 2));
             }
 
+            double labelVal = min + i * delta;
+            int x0 = (int) (i * dx);
 
-        } finally {
-            g2D.dispose();
+            g2D.setColor(Color.BLACK);
+            g2D.drawString(formatter.format(labelVal), x0, (int) getHeight() - 5);
         }
+
     }
 
-    void paintVertical(Graphics g) {
+    void paintVertical(Graphics2D g2D) {
+
         DecimalFormat formatter = new DecimalFormat("0.0");
 
-        Graphics2D g2D = null;
+        g2D.setFont(FontManager.getFont(10));
 
-        try {
-            g2D = (Graphics2D) g.create();
-            if (PreferenceManager.getInstance().getAsBoolean(PreferenceManager.ENABLE_ANTIALISING)) {
-                g2D.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-            }
-            g2D.setFont(FontManager.getFont(10));
+        int npts = 5;
+        double max = colorScale.getMaximum();
+        double min = colorScale.getMinimum();
 
-            int npts = 5;
-            double max = colorScale.getMaximum();
-            double min = colorScale.getMinimum();
+        int h = getWidth() - 20;
+        double dy = ((double) h) / npts;
+        double dyj = dy / 10;
+        double delta = (max - min) / npts;
+        double deltaj = delta / 10;
 
-            int h = getWidth() - 20;
-            double dy = ((double) h) / npts;
-            double dyj = dy / 10;
-            double delta = (max - min) / npts;
-            double deltaj = delta / 10;
-
-            int x0 = 10;
-            int dx = 10;
-            int y0;
-            int y1 = 0;
+        int x0 = 10;
+        int dx = 10;
+        int y0;
+        int y1 = 0;
 
 
-            for (int i = 0; i < npts + 1; i++) {
-                for (int j = i * 10; j < i * 10 + 10; j++) {
-                    double val = min + j * deltaj;
+        for (int i = 0; i < npts + 1; i++) {
+            for (int j = i * 10; j < i * 10 + 10; j++) {
+                double val = min + j * deltaj;
 
-                    Color c = colorScale.getColor((float) val);
+                Color c = colorScale.getColor((float) val);
 
-                    g2D.setColor(c);
+                g2D.setColor(c);
 
-                    y0 = (int) (j * dyj);
-                    y1 = (int) ((j + 1) * dyj);
+                y0 = (int) (j * dyj);
+                y1 = (int) ((j + 1) * dyj);
 
-                    g2D.fillRect(x0, y0, dx, y1 - y0);
-                }
-
-                double labelVal = min + i * delta;
-
-                g2D.setColor(Color.BLACK);
-                g2D.drawString(formatter.format(labelVal), x0 + 15, y1 - 5);
+                g2D.fillRect(x0, y0, dx, y1 - y0);
             }
 
+            double labelVal = min + i * delta;
 
-        } finally {
-            g2D.dispose();
+            g2D.setColor(Color.BLACK);
+            g2D.drawString(formatter.format(labelVal), x0 + 15, y1 - 5);
         }
     }
 

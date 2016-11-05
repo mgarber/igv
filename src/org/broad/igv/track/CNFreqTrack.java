@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.track;
@@ -41,8 +55,8 @@ public class CNFreqTrack extends AbstractTrack {
 
         float nSamples = data.getNumberOfSamples();
         this.setDataRange(new DataRange(-nSamples, 0, nSamples));
-        this.setColor(Color.red);
-        this.setAltColor(Color.blue);
+        this.posColor = Color.red;
+        this.altColor = Color.blue;
 
         renderer = new BarChartRenderer();
 
@@ -64,7 +78,7 @@ public class CNFreqTrack extends AbstractTrack {
     }
 
 
-    public String getValueStringAt(String chr, double position, int y, ReferenceFrame frame) {
+    public String getValueStringAt(String chr, double position, int mouseX, int mouseY, ReferenceFrame frame) {
 
         List<LocusScore> ampScores = data.getAmpCounts(chr);
         List<LocusScore> delScores = data.getDelCounts(chr);
@@ -74,9 +88,9 @@ public class CNFreqTrack extends AbstractTrack {
             LocusScore ampScore = ampScores.get(i);
             if (position >= ampScore.getStart() && position <= ampScore.getEnd()) {
                 buf.append("# of samples with log2(cn/2) &gt; &nbsp; " + data.getAmpThreshold() + ": ");
-                buf.append(ampScore.getValueString(position, null));
+                buf.append(ampScore.getValueString(position, mouseX, null));
                 buf.append("<br># of samples with log2(cn/2) &lt;  " + data.getDelThreshold() + ":  ");
-                buf.append(delScores.get(i).getValueString(position, null));
+                buf.append(delScores.get(i).getValueString(position, mouseX, null));
             }
         }
         return buf.length() == 0 ? null : buf.toString();
@@ -101,11 +115,7 @@ public class CNFreqTrack extends AbstractTrack {
         IGVPopupMenu menu = new IGVPopupMenu();
 
         List<Track> selfAsList = Arrays.asList((Track) this);
-        TrackMenuUtils.addSharedItems(menu, selfAsList, false);
-
-        menu.addSeparator();
-        menu.add(TrackMenuUtils.getRemoveMenuItem(selfAsList));
-
+        TrackMenuUtils.addSharedItems(menu, selfAsList, false, false);
 
         return menu;
     }

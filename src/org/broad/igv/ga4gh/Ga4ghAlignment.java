@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.ga4gh;
@@ -25,7 +39,6 @@ import org.broad.igv.sam.SAMAlignment;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Created by jrobinso on 6/17/14.
@@ -37,8 +50,7 @@ public class Ga4ghAlignment extends SAMAlignment {
     private static Logger log = Logger.getLogger(Ga4ghAlignment.class);
 
     private final Map<String, String> tags;
-    protected int alignmentStart;
-    protected int alignmentEnd;
+
     int inferredInsertSize;
     int mappingQuality = 255;  // 255 by default
     String readName;
@@ -74,7 +86,7 @@ public class Ga4ghAlignment extends SAMAlignment {
 
             JsonObject positionObject = alignmentObject.getAsJsonObject("position");
             String refName = positionObject.get("referenceName").getAsString();
-            this.setChr(genome == null ? refName : genome.getChromosomeAlias(refName));
+            this.setChr(genome == null ? refName : genome.getCanonicalChrName(refName));
 
             this.alignmentStart = positionObject.get("position").getAsInt();
             this.mappingQuality = hasNonNullValue(alignmentObject, "mappingQuality") ? alignmentObject.get("mappingQuality").getAsInt() : 256;
@@ -97,7 +109,7 @@ public class Ga4ghAlignment extends SAMAlignment {
             this.setMate(new ReadMate("*", 0, false, true));
         } else {
             String mateReferenceName = mateObject.get("referenceName").getAsString();
-            String mateChr = genome == null ? mateReferenceName : genome.getChromosomeAlias(mateReferenceName);
+            String mateChr = genome == null ? mateReferenceName : genome.getCanonicalChrName(mateReferenceName);
             int matePosition = Integer.parseInt(mateObject.get("position").getAsString());
             boolean mateNegStrand = hasNonNullValue(mateObject, "reverseStrand") && mateObject.get("reverseStrand").getAsBoolean();
             this.setMate(new ReadMate(mateChr,
@@ -211,6 +223,7 @@ public class Ga4ghAlignment extends SAMAlignment {
 
         StringBuffer buffer = new StringBuffer();
         for (Map.Entry<String, String> entry : tags.entrySet()) {
+            buffer.append("<br>");
             buffer.append(entry.getKey() + ": " + entry.getValue());
         }
         return buffer.toString();
@@ -292,6 +305,19 @@ public class Ga4ghAlignment extends SAMAlignment {
         CigarMap.put("PAD", "P");
         CigarMap.put("SEQUENCE_MATCH", "=");
         CigarMap.put("SEQUENCE_MISMATCH", "X");
+    }
+
+    // ReadGroup properties not currently supported for GA4GH
+    public String getSample() {
+        return null;
+    }
+
+    public String getReadGroup() {
+        return null;
+    }
+
+    public String getLibrary() {
+        return null;
     }
 
     ;

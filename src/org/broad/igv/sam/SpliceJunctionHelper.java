@@ -1,20 +1,26 @@
-/**
- * Copyright (c) 2010-2011 by Fred Hutchinson Cancer Research Center.  All Rights Reserved.
-
- * This software is licensed under the terms of the GNU Lesser General
- * Public License (LGPL), Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
-
- * THE SOFTWARE IS PROVIDED "AS IS." FRED HUTCHINSON CANCER RESEARCH CENTER MAKES NO
- * REPRESENTATIONS OR WARRANTES OF ANY KIND CONCERNING THE SOFTWARE, EXPRESS OR IMPLIED,
- * INCLUDING, WITHOUT LIMITATION, WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
- * PARTICULAR PURPOSE, NONINFRINGEMENT, OR THE ABSENCE OF LATENT OR OTHER DEFECTS,
- * WHETHER OR NOT DISCOVERABLE.  IN NO EVENT SHALL FRED HUTCHINSON CANCER RESEARCH
- * CENTER OR ITS TRUSTEES, DIRECTORS, OFFICERS, EMPLOYEES, AND AFFILIATES BE LIABLE FOR
- * ANY DAMAGES OF ANY KIND, INCLUDING, WITHOUT LIMITATION, INCIDENTAL OR
- * CONSEQUENTIAL DAMAGES, ECONOMIC DAMAGES OR INJURY TO PROPERTY AND LOST PROFITS,
- * REGARDLESS OF  WHETHER FRED HUTCHINSON CANCER RESEARCH CENTER SHALL BE ADVISED,
- * SHALL HAVE OTHER REASON TO KNOW, OR IN FACT SHALL KNOW OF THE POSSIBILITY OF THE
- * FOREGOING.
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2007-2015 Fred Hutchinson Cancer Research Center and Broad Institute
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 
@@ -56,7 +62,7 @@ public class SpliceJunctionHelper {
         this.loadOptions = loadOptions;
     }
 
-    public List<SpliceJunctionFeature> getFilteredJunctions(SpliceJunctionFinderTrack.StrandOption strandOption) {
+    public List<SpliceJunctionFeature> getFilteredJunctions(SpliceJunctionTrack.StrandOption strandOption) {
 
         List<SpliceJunctionFeature> junctions;
 
@@ -106,22 +112,23 @@ public class SpliceJunctionHelper {
         Table<Integer, Integer, SpliceJunctionFeature> startEndJunctionsTableThisStrand =
                 isNegativeStrand ? negStartEndJunctionsMap : posStartEndJunctionsMap;
 
-        int flankingStart = -1;
-        int junctionStart = -1;
-        int gapCount = -1;
-        char[] gapTypes = alignment.getGapTypes();
-        //for each pair of blocks, create or add evidence to a splice junction
-        if (gapTypes != null) {
-            for (AlignmentBlock block : blocks) {
-                int flankingEnd = block.getEnd();
-                int junctionEnd = block.getStart();
-                if (junctionStart != -1 && gapCount < gapTypes.length && gapTypes[gapCount] == SAMAlignment.SKIPPED_REGION) {
 
+        //for each skipped region, create or add evidence to a splice junction
+        List<Gap> gaps = alignment.getGaps();
+        if (gaps != null) {
+            //  for (AlignmentBlock block : blocks) {
+            for (Gap gap : gaps) {
+                if (gap instanceof SpliceGap) {
+                    SpliceGap spliceGap = (SpliceGap) gap;
                     //only proceed if the flanking regions are both bigger than the minimum
                     if (loadOptions.minReadFlankingWidth == 0 ||
-                            ((junctionStart - flankingStart >= loadOptions.minReadFlankingWidth) &&
-                                    (flankingEnd - junctionEnd >= loadOptions.minReadFlankingWidth))) {
+                            (spliceGap.getFlankingLeft() >= loadOptions.minReadFlankingWidth &&
+                                    spliceGap.getFlankingRight() >= loadOptions.minReadFlankingWidth)) {
 
+                        int junctionStart = spliceGap.getStart();
+                        int junctionEnd = junctionStart + spliceGap.getnBases();
+                        int flankingStart = junctionStart - spliceGap.getFlankingLeft();
+                        int flankingEnd = junctionEnd + spliceGap.getFlankingRight();
                         SpliceJunctionFeature junction = startEndJunctionsTableThisStrand.get(junctionStart, junctionEnd);
                         if (junction == null) {
                             junction = new SpliceJunctionFeature(alignment.getChr(), junctionStart, junctionEnd,
@@ -133,9 +140,6 @@ public class SpliceJunctionHelper {
                     }
 
                 }
-                flankingStart = junctionEnd;
-                junctionStart = flankingEnd;
-                gapCount += 1;
             }
         }
     }

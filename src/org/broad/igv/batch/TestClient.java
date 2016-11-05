@@ -1,19 +1,26 @@
 /*
- * Copyright (c) 2007-2011 by The Broad Institute of MIT and Harvard.  All Rights Reserved.
+ * The MIT License (MIT)
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * THE SOFTWARE IS PROVIDED "AS IS." THE BROAD AND MIT MAKE NO REPRESENTATIONS OR
- * WARRANTES OF ANY KIND CONCERNING THE SOFTWARE, EXPRESS OR IMPLIED, INCLUDING,
- * WITHOUT LIMITATION, WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
- * PURPOSE, NONINFRINGEMENT, OR THE ABSENCE OF LATENT OR OTHER DEFECTS, WHETHER
- * OR NOT DISCOVERABLE.  IN NO EVENT SHALL THE BROAD OR MIT, OR THEIR RESPECTIVE
- * TRUSTEES, DIRECTORS, OFFICERS, EMPLOYEES, AND AFFILIATES BE LIABLE FOR ANY DAMAGES
- * OF ANY KIND, INCLUDING, WITHOUT LIMITATION, INCIDENTAL OR CONSEQUENTIAL DAMAGES,
- * ECONOMIC DAMAGES OR INJURY TO PROPERTY AND LOST PROFITS, REGARDLESS OF WHETHER
- * THE BROAD OR MIT SHALL BE ADVISED, SHALL HAVE OTHER REASON TO KNOW, OR IN FACT
- * SHALL KNOW OF THE POSSIBILITY OF THE FOREGOING.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 package org.broad.igv.batch;
@@ -31,7 +38,7 @@ import java.util.List;
 public class TestClient {
 
     static private String sessionURL = "http://www.broadinstitute.org/mmgp/textReader/IGV/mmrc_session.xml";
-    static private String fileURL = "http://www.broadinstitute.org/igvdata/cshcourse/rwpe.washu.merged.bam";
+    static private String fileURL = "https://data.broadinstitute.org/igvdata/cshcourse/rwpe.washu.merged.bam";
 
     public static void main(String args[]) throws IOException {
         Socket socket = null;
@@ -41,9 +48,9 @@ public class TestClient {
             socket = new Socket("127.0.0.1", 60151);
             out = new PrintWriter(socket.getOutputStream(), true);
             in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-            testEcho(out, in);
+            //testEcho(out, in);
             //testMultiLocus(out, in);
-            //testLoopBAM(out, in);
+            testLoopBAM(out, in);
         } catch (UnknownHostException e) {
             System.err.println("Unknown host exception: " + e.getMessage());
             System.exit(1);
@@ -67,14 +74,14 @@ public class TestClient {
 
 
 
-        //http://localhost:60151/load?file=http://www.broadinstitute.org/igvdata/tcga/gbmsubtypes/Broad.080528.subtypes.seg.gz&genome=hg18&locus=EGFR%20PTEN
+        //http://localhost:60151/load?file=https://data.broadinstitute.org/igvdata/tcga/gbmsubtypes/Broad.080528.subtypes.seg.gz&genome=hg18&locus=EGFR%20PTEN
 
     }
 
 
     private static void testMultiLocus(PrintWriter out, BufferedReader in) throws IOException {
 
-        String cmd = "load http://www.broadinstitute.org/igvdata/tcga/gbmsubtypes/Broad.080528.subtypes.seg.gz";
+        String cmd = "load https://data.broadinstitute.org/igvdata/tcga/gbmsubtypes/Broad.080528.subtypes.seg.gz";
         out.println(cmd);
         String response = in.readLine();
         System.out.println(cmd + " " + response);
@@ -85,27 +92,28 @@ public class TestClient {
         System.out.println(cmd + " " + response);
 
 
-        //http://localhost:60151/load?file=http://www.broadinstitute.org/igvdata/tcga/gbmsubtypes/Broad.080528.subtypes.seg.gz&genome=hg18&locus=EGFR%20PTEN
+        //http://localhost:60151/load?file=https://data.broadinstitute.org/igvdata/tcga/gbmsubtypes/Broad.080528.subtypes.seg.gz&genome=hg18&locus=EGFR%20PTEN
 
     }
 
     private static void testLoopBAM(PrintWriter out, BufferedReader in) throws IOException {
 
-        String fileURL = "http://www.broadinstitute.org/igvdata/1KG/freeze5_merged/low_coverage_YRI.13.bam";
+//        String fileURL = "test/data/bam/test4bams_session.xml";
         String chr = "chr13";
         int chrLength = 113000000;
 
         String cmd = "snapshotDirectory /Users/jrobinso/tmp";
-        out.println(cmd);
-        String response = in.readLine();
-        System.out.println(cmd + " " + response);
+        String response;
+//        out.println(cmd);
+//        String response = in.readLine();
+//        System.out.println(cmd + " " + response);
+//
+//        cmd = "load " + fileURL;
+//        out.println(cmd);
+//        response = in.readLine();
+//        System.out.println(cmd + " " + response);
 
-        cmd = "load " + fileURL;
-        out.println(cmd);
-        response = in.readLine();
-        System.out.println(cmd + " " + response);
-
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 100; i++) {
 
             int start = 1 + (int) (Math.random() * (chrLength - 10000));
             int end = start + 8000;
@@ -115,10 +123,10 @@ public class TestClient {
             response = in.readLine();
             System.out.println("" + i + " " + cmd + " " + response);
 
-            cmd = "snapshot test_" + i + ".png";
-            out.println(cmd);
-            response = in.readLine();
-            System.out.println("" + i + " " + cmd + " " + response);
+//            cmd = "snapshot test_" + i + ".png";
+//            out.println(cmd);
+//            response = in.readLine();
+//            System.out.println("" + i + " " + cmd + " " + response);
         }
 
     }

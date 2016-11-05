@@ -1,12 +1,26 @@
 /*
- * Copyright (c) 2007-2012 The Broad Institute, Inc.
- * SOFTWARE COPYRIGHT NOTICE
- * This software and its documentation are the copyright of the Broad Institute, Inc. All rights are reserved.
+ * The MIT License (MIT)
  *
- * This software is supplied without any warranty or guaranteed support whatsoever. The Broad Institute is not responsible for its use, misuse, or functionality.
+ * Copyright (c) 2007-2015 Broad Institute
  *
- * This software is licensed under the terms of the GNU Lesser General Public License (LGPL),
- * Version 2.1 which is available at http://www.opensource.org/licenses/lgpl-2.1.php.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 
@@ -170,7 +184,7 @@ public class ColorUtilities {
     }
 
     public static Color stringToColor(String string) {
-       return stringToColor(string, Color.black);
+        return stringToColor(string, Color.black);
     }
 
     public static Color stringToColor(String string, Color defaultColor) {
@@ -381,11 +395,79 @@ public class ColorUtilities {
 
     /**
      * Return a new Color, same as the old, but with a new alpha value
+     *
      * @param oldColor
      * @param newAlpha
      * @return
      */
-    public static Color modifyAlpha(Color oldColor, int newAlpha){
+    public static Color modifyAlpha(Color oldColor, int newAlpha) {
         return new Color(oldColor.getRed(), oldColor.getGreen(), oldColor.getBlue(), newAlpha);
     }
+
+    /**
+     * Converts an HSL color value to RGB. Conversion formula
+     * adapted from http://en.wikipedia.org/wiki/HSL_color_space.
+     *
+     * @param h The hue  [0, 360]
+     * @param s The saturation  [0, 1]
+     * @param l The lightness  [0, 1]
+     * @return The RGB representation
+     */
+    public static int[] hslToRgb(double h, double s, double l) {
+
+        double c = (1 - Math.abs(2 * l - 1)) * s;
+
+        double hprime = h / 60;
+        double x = c * (1 - Math.abs(hprime % 2 - 1));
+        double r, g, b;
+
+        if (hprime < 1) {
+            r = c;
+            g = x;
+            b = 0;
+        } else if (hprime < 2) {
+            r = x;
+            g = c;
+            b = 0;
+        } else if (hprime < 3) {
+            r = 0;
+            g = c;
+            b = x;
+        } else if (hprime < 4) {
+            r = 0;
+            g = x;
+            b = c;
+        } else if (hprime < 5) {
+            r = x;
+            g = 0;
+            b = c;
+        } else {
+            r = c;
+            g = 0;
+            b = x;
+        }
+        double m = l - 0.5 * c;
+
+        return new int[]{
+                (int) ((r + m) * 255),
+                (int) ((g + m) * 255),
+                (int) ((b + m) * 255)
+        };
+//        int r, g, b;
+//
+//        if (s == 0) {
+//            r = g = b = (int) (255 * l); // achromatic
+//        } else {
+//            double q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+//            double p = 2 * l - q;
+//            r = (int) (255 * hue2rgb(p, q, h + 1 / 3));
+//            g = (int) (255 * hue2rgb(p, q, h));
+//            b = (int) (255 * hue2rgb(p, q, h - 1 / 3));
+//        }
+//
+//        return new int[]{r, g, b};
+    }
+
+
+
 }

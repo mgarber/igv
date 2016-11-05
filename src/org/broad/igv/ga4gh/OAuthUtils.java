@@ -1,3 +1,28 @@
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2007-2015 Broad Institute
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ */
+
 package org.broad.igv.ga4gh;
 
 import com.google.gson.JsonObject;
@@ -32,6 +57,7 @@ public class OAuthUtils {
     private String profileScope = "https://www.googleapis.com/auth/userinfo.profile";
     private String state = "%2Fprofile";
     private String redirectURI = "http%3A%2F%2Flocalhost%3A60151%2FoauthCallback";
+    private String oobURI = "urn%3Aietf%3Awg%3Aoauth%3A2.0%3Aoob";
     private String clientId;
     private String clientSecret;
     private String authURI;
@@ -75,12 +101,21 @@ public class OAuthUtils {
 
     public void openAuthorizationPage() throws IOException, URISyntaxException {
 
+        if (clientId == null) fetchOauthProperties();
+
         if (CommandListener.currentListenerPort != 60151) {
-            MessageUtils.showMessage("OAuth failure:  IGV command listener must be open on the default port (60151)");
-            return;
+            String url = authURI + "?" +
+                    "scope=" + genomicsScope + "%20" + gsScope + "%20" + profileScope + "&" +
+                    "state=" + state + "&" +
+                    "redirect_uri=" + oobURI + "&" +
+                    "response_type=code&" +
+                    "client_id=" + clientId; // Native app
+            Desktop.getDesktop().browse(new URI(url));
+            String ac = MessageUtils.showInputDialog("Please paste authorization code here:");
+            if (ac != null) setAuthorizationCode(ac, oobURI);
+
         } else {
 
-            if (clientId == null) fetchOauthProperties();
 
             String url = authURI + "?" +
                     "scope=" + genomicsScope + "%20" + gsScope + "%20" + profileScope + "&" +
@@ -96,8 +131,12 @@ public class OAuthUtils {
 
     // Called from port listener upon receiving the oauth request with a "code" parameter
     public void setAuthorizationCode(String ac) throws IOException {
+        setAuthorizationCode(ac, redirectURI);
+    }
+
+    public void setAuthorizationCode(String ac, String redirect) throws IOException {
         authorizationCode = ac;
-        fetchTokens();
+        fetchTokens(redirect);
         fetchUserProfile();
     }
 
@@ -107,7 +146,7 @@ public class OAuthUtils {
         fetchUserProfile();
     }
 
-    private void fetchTokens() throws IOException {
+    private void fetchTokens(String redirect) throws IOException {
 
         if (clientId == null) fetchOauthProperties();
 
@@ -117,7 +156,7 @@ public class OAuthUtils {
         params.put("code", authorizationCode);
         params.put("client_id", clientId);
         params.put("client_secret", clientSecret);
-        params.put("redirect_uri", redirectURI);
+        params.put("redirect_uri", redirect);
         params.put("grant_type", "authorization_code");
 
         String response = HttpUtils.getInstance().doPost(url, params);
