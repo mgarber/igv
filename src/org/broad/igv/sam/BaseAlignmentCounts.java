@@ -199,14 +199,22 @@ abstract public class BaseAlignmentCounts implements AlignmentCounts {
 
     }
 
-    public boolean isMismatch(int pos, byte ref, String chr, float snpThreshold) {
+    /**
+     * Return true if the mismatched (with respect to ref) read bases at the given position exceed the threshold.
+     *
+     * @param pos  genomic position (0 based)
+     * @param ref  reference base
+     * @param chr  chromosomes -- used as a key to fetch filtered snp locations
+     * @param snpThreshold  threshold as a fraction of total
+     * @return
+     */
+    public boolean isConsensusMismatch(int pos, byte ref, String chr, float snpThreshold) {
 
         boolean qualityWeight = PreferenceManager.getInstance().getAsBoolean(PreferenceManager.SAM_ALLELE_USE_QUALITY);
 
         Set<Integer> filteredSnps = knownSnps == null ? null : knownSnps.get(chr);
 
         if (filteredSnps == null || !filteredSnps.contains(pos + 1)) {
-
             float threshold = snpThreshold * (qualityWeight ? getTotalQuality(pos) : getTotalCount(pos));
             float mismatchQualitySum = 0;
 
@@ -216,13 +224,32 @@ abstract public class BaseAlignmentCounts implements AlignmentCounts {
                     if (c != ref && c != 'n') {
                         mismatchQualitySum += (qualityWeight ? getQuality(pos, (byte) c) : getCount(pos, (byte) c));
                     }
-
                 }
-                return mismatchQualitySum >= threshold;
+                return (mismatchQualitySum >= threshold) && (threshold > 0); // (threshold > 0) avoids mismatch call in columns with all 0 quality
             }
         }
         return false;
     }
+
+    public boolean isConsensusDeletion(int start, int width, float snpThreshold) {
+
+        // We require deletion counts > threshold for at least 1/2 the width
+
+        int end = start + width;
+        int count = 0;
+        for(int i=start; i< end; i++) {
+            int totalCoverad = getTotalCount(i) + getDelCount(i);
+            if(getDelCount(i) >= snpThreshold * totalCoverad) count++;
+        }
+        return count >= 0.5 * width;
+    }
+
+    @Override
+    public boolean isConsensusInsertion(int pos, float snpThreshold) {
+        float threshold = snpThreshold * (getTotalCount(pos) + getDelCount(pos)); // For this purpose consider deletions as covered
+        return (this.getInsCount(pos) >= threshold);
+    }
+
 
     /**
      * Load the set of known snps from a tab delimited file, format

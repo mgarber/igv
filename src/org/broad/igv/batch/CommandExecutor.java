@@ -467,6 +467,7 @@ public class CommandExecutor {
 
         log.debug("Run load files");
 
+
         List<String> files = StringUtils.breakQuotedString(fileString, ',');
         List<String> names = StringUtils.breakQuotedString(nameString, ',');
         List<String> indexFiles = StringUtils.breakQuotedString(indexString, ',');
@@ -828,7 +829,7 @@ public class CommandExecutor {
     }
 
     private void group(String groupArg, String tagArg) {
-        igv.groupAlignmentTracks(getAlignmentGroupOption(groupArg), tagArg);
+        igv.groupAlignmentTracks(getAlignmentGroupOption(groupArg), tagArg, null);
         igv.repaintDataPanels();
     }
 

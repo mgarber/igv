@@ -431,16 +431,6 @@ public class ReducedMemoryAlignment implements Alignment {
         public boolean hasBases() {
             return false;
         }
-
-        @Override
-        public FlowSignalSubContext getFlowSignalSubContext(int offset) {
-            return null;
-        }
-
-        @Override
-        public boolean hasFlowSignals() {
-            return false;
-        }
     }
 
 
@@ -605,7 +595,17 @@ public class ReducedMemoryAlignment implements Alignment {
 
 
         @Override
-        public boolean isMismatch(int pos, byte ref, String chr, float snpThreshold) {
+        public boolean isConsensusMismatch(int pos, byte ref, String chr, float snpThreshold) {
+            return false;
+        }
+
+        @Override
+        public boolean isConsensusDeletion(int start, int end, float snpThreshold) {
+            return false;
+        }
+
+        @Override
+        public boolean isConsensusInsertion(int pos, float snpThreshold) {
             return false;
         }
 

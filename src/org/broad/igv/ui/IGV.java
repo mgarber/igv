@@ -489,8 +489,13 @@ public class IGV implements IGVEventObserver {
         return contentPane.getCommandBar().getSelectableGenomeIDs();
     }
 
+    // Set the focus on the command bar search box
+    public void focusSearchBox() {
+        contentPane.getCommandBar().focusSearchBox();
+    }
 
-    public void doDefineGenome(ProgressMonitor monitor) {
+
+    public void doDefineGenome(javax.swing.ProgressMonitor monitor) {
 
         ProgressBar.ProgressDialog progressDialog = null;
         File archiveFile = null;
@@ -505,9 +510,6 @@ public class IGV implements IGVEventObserver {
                 return;
             }
 
-            if (monitor != null) {
-                progressDialog = ProgressBar.showProgressDialog(mainFrame, "Defining Genome...", monitor, false);
-            }
 
             String cytobandFileName = genomeBuilderDialog.getCytobandFileName();
             String geneAnnotFileName = genomeBuilderDialog.getGeneAnnotFileName();
@@ -526,7 +528,7 @@ public class IGV implements IGVEventObserver {
                 contentPane.getCommandBar().selectGenome(genomeListItem.getId());
             }
             if (monitor != null) {
-                monitor.fireProgressChange(100);
+                monitor.setProgress(100);
             }
 
         } catch (MaximumContigGenomeException e) {
@@ -577,11 +579,10 @@ public class IGV implements IGVEventObserver {
         Runnable showDialog = new Runnable() {
             @Override
             public void run() {
+
                 Collection<GenomeListItem> inputListItems = GenomeManager.getInstance().getServerGenomeArchiveList();
                 if (inputListItems == null) {
-                    //Not necessary to display a message, getServerGenomeArchiveList does it already
-                    //IOException exc = new IOException("Unable to reach genome server");
-                    //MessageUtils.showErrorMessage(exc.getMessage(), exc);
+                    //Could not reach genome server.  Not necessary to display a message, getServerGenomeArchiveList does it already
                     return;
                 }
 
@@ -592,7 +593,9 @@ public class IGV implements IGVEventObserver {
                 if (selectedValues != null && selectedValues.size() >= 1) {
 
                     if (selectedValues.size() == 1 && dialog.downloadSequence()) {
+
                         GenomeListItem oldItem = selectedValues.get(0);
+
                         GenomeSelectionDialog.downloadGenome(getMainFrame(), oldItem);
 
                         File newLocation = new File(DirectoryManager.getGenomeCacheDirectory().getAbsolutePath(), Utilities.getFileNameFromURL(oldItem.getLocation()));
@@ -666,9 +669,15 @@ public class IGV implements IGVEventObserver {
     }
 
     public void loadGenomeById(String genomeId) {
+
+        final Genome currentGenome = genomeManager.getCurrentGenome();
+        if(currentGenome != null && genomeId.equals(currentGenome.getId())) {
+            return; // Already loaded
+        }
+
         if (ParsingUtils.pathExists(genomeId)) {
             try {
-                IGV.getInstance().loadGenome(genomeId, null, false);
+                loadGenome(genomeId, null, false);
             } catch (IOException e) {
                 log.error("Error loading genome file: " + genomeId, e);
             }
@@ -1972,18 +1981,18 @@ public class IGV implements IGVEventObserver {
      * @param option
      * @api
      */
-    public void groupAlignmentTracks(AlignmentTrack.GroupOption option, String tag) {
-        for (Track t : getAllTracks()) {
-            if (t instanceof AlignmentTrack) {
-                ((AlignmentTrack) t).groupAlignments(option, tag);
-            }
+    public void groupAlignmentTracks(AlignmentTrack.GroupOption option, String tag, Range pos) {
+        final PreferenceManager prefMgr = PreferenceManager.getInstance();
+        prefMgr.put(PreferenceManager.SAM_GROUP_OPTION, option.toString());
+        if (option == AlignmentTrack.GroupOption.TAG && tag != null) {
+            prefMgr.put(PreferenceManager.SAM_GROUP_BY_TAG, tag);
         }
-    }
-
-    public void groupAlignmentTracksByBaseAtPos(AlignmentTrack.GroupOption option, Range pos) {
+        if (option == AlignmentTrack.GroupOption.BASE_AT_POS && pos != null) {
+            prefMgr.put(PreferenceManager.SAM_GROUP_BY_POS, pos.getChr() + " " + String.valueOf(pos.getStart()));
+        }
         for (Track t : getAllTracks()) {
             if (t instanceof AlignmentTrack) {
-                ((AlignmentTrack) t).groupAlignmentsByBaseAtPos(option, pos);
+                ((AlignmentTrack) t).groupAlignments(option, tag, pos);
             }
         }
     }

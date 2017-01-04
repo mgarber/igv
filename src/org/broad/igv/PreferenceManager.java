@@ -108,12 +108,14 @@ public class PreferenceManager implements PropertyManager {
     public static final String SAM_SAMPLING_WINDOW = "SAM.SAMPLING_WINDOW";
     public static final String SAM_DOWNSAMPLE_READS = "SAM.DOWNSAMPLE_READS";
     public static final String SAM_SORT_OPTION = "SAM.SORT_OPTION";
+    public static final String SAM_GROUP_OPTION = "SAM.GROUP_OPTION";
     public static final String SAM_SHOW_ALL_BASES = "SAM.SHOW_ALL_BASES";
 
     public static final String SAM_COLOR_BY = "SAM.COLOR_BY";
     public static final String SAM_COLOR_BY_TAG = "SAM.COLOR_BY_TAG";
     public static final String SAM_SORT_BY_TAG = "SAM.SORT_BY_TAG";
     public static final String SAM_GROUP_BY_TAG = "SAM.GROUP_BY_TAG";
+    public static final String SAM_GROUP_BY_POS = "SAM.GROUP_BY_POS";
     public static final String SAM_BISULFITE_CONTEXT = "SAM.BISULFITE_CONTEXT";
     public static final String SAM_FILTER_FAILED_READS = "SAM.FILTER_FAILED_READS";
     public static final String SAM_COMPUTE_ISIZES = "SAM.COMPUTE_ISIZES";
@@ -131,15 +133,16 @@ public class PreferenceManager implements PropertyManager {
     public static final String SAM_FLAG_LARGE_INDELS = "SAM.FLAG_LARGE_INDELS";
     public static final String SAM_LARGE_INDELS_THRESHOLD = "SAM.LARGE_INSERTIONS_THRESOLD";
 
+    public static final String SAM_FLAG_CLIPPING = "SAM.FLAG_CLIPPING";
+    public static final String SAM_CLIPPING_THRESHOLD = "SAM.CLIPPING_THRESHOLD";
+
     public static final String SAM_SHOW_GROUP_SEPARATOR = "SAM.SHOW_GROUP_SEPARATOR";
     public static final String SAM_COMPLETE_READS_ONLY = "SAM.COMPLETE_READS_ONLY";
 
     public static final String SAM_REDUCED_MEMORY_MODE = "SAM.REDUCED_MEMORY_MODE";
 
     public static final String SAM_HIDE_SMALL_INDEL_BP = "SAM.HIDE_SMALL_INDEL_BP";
-    public static final String SAM_HIDE_SMALL_INDEL_PIXEL = "SAM.HIDE_SMALL_INDEL";
     public static final String SAM_SMALL_INDEL_BP_THRESHOLD = "SAM.MIN_INDEL_BP_THRESHOLD";
-    public static final String SAM_SMALL_INDELS_PIXEL_THRESHOLD = "SAM.MIN_INDEL_PIXEL_THRESHOLD";
 
     public static final String SAM_LINK_READS = "SAM.LINK_READS";
     public static final String SAM_LINK_TAG = "SAM.LINK_TAG";
@@ -520,7 +523,14 @@ public class PreferenceManager implements PropertyManager {
                     reloadSAM = true;
                     break;
                 }
+            }
 
+            boolean refreshSAM = false;
+            for (String key: SAM_REFRESH_KEYS) {
+                if (updatedPreferenceMap.containsKey(key)) {
+                    refreshSAM = true;
+                    break;
+                }
             }
 
             if (reloadSAM) {
@@ -528,6 +538,10 @@ public class PreferenceManager implements PropertyManager {
                     igv.notifyAlignmentTrackEvent(this, AlignmentTrackEvent.Type.VISIBILITY_WINDOW);
                 }
                 igv.notifyAlignmentTrackEvent(this, AlignmentTrackEvent.Type.RELOAD);
+            }
+            // A reload is harsher than a refresh; only send the weaker request if the stronger one is not sent.
+            if (!reloadSAM && refreshSAM) {
+                igv.notifyAlignmentTrackEvent(this, AlignmentTrackEvent.Type.REFRESH);
             }
             if (updatedPreferenceMap.containsKey(PreferenceManager.SAM_ALLELE_THRESHOLD)) {
                 igv.notifyAlignmentTrackEvent(this, AlignmentTrackEvent.Type.ALLELE_THRESHOLD);
@@ -1078,6 +1092,7 @@ public class PreferenceManager implements PropertyManager {
         defaultValues.put(SAM_COLOR_BY, "UNEXPECTED_PAIR");
         defaultValues.put(SAM_COLOR_BY_TAG, "");
         defaultValues.put(SAM_GROUP_BY_TAG, "");
+        defaultValues.put(SAM_GROUP_BY_POS, "");
         defaultValues.put(SAM_SORT_BY_TAG, "");
         defaultValues.put(SAM_BISULFITE_CONTEXT, "CG");
         defaultValues.put(SAM_COMPUTE_ISIZES, "true");
@@ -1090,7 +1105,10 @@ public class PreferenceManager implements PropertyManager {
         defaultValues.put(SAM_COUNT_DELETED_BASES_COVERED, "false");
         defaultValues.put(SAM_FLAG_LARGE_INDELS, "false");
         defaultValues.put(SAM_LARGE_INDELS_THRESHOLD, "1");
+        defaultValues.put(SAM_FLAG_CLIPPING, "false");
+        defaultValues.put(SAM_CLIPPING_THRESHOLD, "0");
         defaultValues.put(SAM_SORT_OPTION, "NUCLEOTIDE");
+        defaultValues.put(SAM_GROUP_OPTION, "NONE");
         defaultValues.put(SAM_SHOW_GROUP_SEPARATOR, "true");
         defaultValues.put(SAM_COMPLETE_READS_ONLY, "false");
         defaultValues.put(SAM_SHOW_ALL_BASES, "false");
@@ -1099,8 +1117,6 @@ public class PreferenceManager implements PropertyManager {
 
         defaultValues.put(SAM_HIDE_SMALL_INDEL_BP, "false");
         defaultValues.put(SAM_SMALL_INDEL_BP_THRESHOLD, "0");
-        defaultValues.put(SAM_HIDE_SMALL_INDEL_PIXEL, "true");
-        defaultValues.put(SAM_SMALL_INDELS_PIXEL_THRESHOLD, "3");
 
         defaultValues.put(SAM_LINK_READS, "false");
         defaultValues.put(SAM_LINK_TAG, "READNAME");
@@ -1381,8 +1397,6 @@ public class PreferenceManager implements PropertyManager {
             PreferenceManager.SAM_FILTER_URL,
             PreferenceManager.SAM_MAX_VISIBLE_RANGE,
             PreferenceManager.SAM_SHOW_DUPLICATES,
-            PreferenceManager.SAM_QUICK_CONSENSUS_MODE,
-            PreferenceManager.SAM_ALLELE_THRESHOLD,
             PreferenceManager.SAM_SHOW_SOFT_CLIPPED,
             PreferenceManager.SAM_SAMPLING_COUNT,
             PreferenceManager.SAM_SAMPLING_WINDOW,
@@ -1391,10 +1405,18 @@ public class PreferenceManager implements PropertyManager {
             PreferenceManager.SAM_FILTER_SECONDARY_ALIGNMENTS,
             PreferenceManager.SAM_FILTER_SUPPLEMENTARY_ALIGNMENTS,
             PreferenceManager.SAM_JUNCTION_MIN_FLANKING_WIDTH,
-            PreferenceManager.SAM_JUNCTION_MIN_COVERAGE,
-       //     PreferenceManager.SAM_FLAG_LARGE_INDELS,
-            PreferenceManager.SAM_LARGE_INDELS_THRESHOLD
+            PreferenceManager.SAM_JUNCTION_MIN_COVERAGE
     );
 
+    /**
+     * List of keys that do not affect the alignments loaded but do affect how those
+     * alignments are drawn.  A refresh is softer than a reload.
+    */
+    static java.util.List<String> SAM_REFRESH_KEYS = Arrays.asList(
+        PreferenceManager.SAM_QUICK_CONSENSUS_MODE,
+        PreferenceManager.SAM_ALLELE_THRESHOLD,
+        PreferenceManager.SAM_FLAG_LARGE_INDELS,
+        PreferenceManager.SAM_LARGE_INDELS_THRESHOLD
+    );
 
 }
