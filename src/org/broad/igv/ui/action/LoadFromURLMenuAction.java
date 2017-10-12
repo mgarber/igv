@@ -30,10 +30,12 @@
 package org.broad.igv.ui.action;
 
 import org.apache.log4j.Logger;
-import org.broad.igv.PreferenceManager;
 import org.broad.igv.exceptions.HttpResponseException;
+import org.broad.igv.feature.genome.GenomeManager;
 import org.broad.igv.ga4gh.GoogleUtils;
 import org.broad.igv.ga4gh.OAuthUtils;
+import org.broad.igv.prefs.Constants;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.ui.IGV;
 import org.broad.igv.ui.IGVMenuBar;
 import org.broad.igv.ui.util.LoadFromURLDialog;
@@ -46,9 +48,7 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.UnsupportedEncodingException;
 import java.net.URL;
-import java.net.URLEncoder;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
@@ -94,6 +94,29 @@ public class LoadFromURLMenuAction extends MenuAction {
                     }
 
                     if (OAuthUtils.isGoogleCloud(url)) {
+                    	
+                    	// if user is not currently logged in, attempt to 
+                    	// log in user if not logged in dwm08
+                    	if (!OAuthUtils.getInstance().isLoggedIn()) {
+                       	 try {
+                                OAuthUtils.getInstance().openAuthorizationPage();
+                            } catch (Exception ex) {
+                                MessageUtils.showErrorMessage("Error fetching oAuth tokens.  See log for details", ex);
+                                log.error("Error fetching oAuth tokens", ex);
+                            }
+
+                        }
+                    	// wait until authentication successful or 1 minute - dwm08
+                    	int i = 0;
+                    	while (!OAuthUtils.getInstance().isLoggedIn() && i<600) {
+                    		++i;
+                    		try {
+								Thread.sleep(100);
+							} catch (InterruptedException e1) {
+								e1.printStackTrace();
+							}
+                    	}
+                    	
                         // Access a few bytes as a means to check authorization
                         if (!ping(url)) return;
                         if (url.indexOf("alt=media") < 0) {
@@ -143,8 +166,8 @@ public class LoadFromURLMenuAction extends MenuAction {
                     JOptionPane.QUESTION_MESSAGE);
             if (url != null && url.trim().length() > 0) {
                 try {
-                    igv.loadGenome(url.trim(), null, true);
-                } catch (IOException e1) {
+                    GenomeManager.getInstance().loadGenome(url.trim(), null);
+                } catch (Exception e1) {
                     MessageUtils.showMessage("Error loading genome: " + e1.getMessage());
                 }
             }
@@ -153,8 +176,8 @@ public class LoadFromURLMenuAction extends MenuAction {
 
     private void enableGoogleMenu() {
 
-        if (!PreferenceManager.getInstance().getAsBoolean(PreferenceManager.ENABLE_GOOGLE_MENU)) {
-            PreferenceManager.getInstance().put(PreferenceManager.ENABLE_GOOGLE_MENU, true);
+        if (!PreferencesManager.getPreferences().getAsBoolean(Constants.ENABLE_GOOGLE_MENU)) {
+            PreferencesManager.getPreferences().put(Constants.ENABLE_GOOGLE_MENU, true);
             IGVMenuBar.getInstance().enableGoogleMenu(true);
         }
     }
@@ -164,7 +187,7 @@ public class LoadFromURLMenuAction extends MenuAction {
         InputStream is = null;
         try {
             Map<String, String> params = new HashMap();
-            params.put("Range", "0-10");
+            params.put("Range", "bytes=0-10");
             byte[] buffer = new byte[10];
             is = HttpUtils.getInstance().openConnectionStream(new URL(url), params);
             is.read(buffer);

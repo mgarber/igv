@@ -25,19 +25,19 @@
 
 package org.broad.igv.data.rnai;
 
+import htsjdk.tribble.readers.AsciiLineReader;
 import org.apache.log4j.Logger;
 import org.broad.igv.Globals;
-import org.broad.igv.PreferenceManager;
 import org.broad.igv.data.expression.ProbeToLocusMap;
 import org.broad.igv.exceptions.LoadResourceFromServerException;
 import org.broad.igv.feature.FeatureDB;
 import org.broad.igv.feature.NamedFeature;
 import org.broad.igv.feature.genome.Genome;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.ui.IGV;
 import org.broad.igv.util.HttpUtils;
 import org.broad.igv.util.ParsingUtils;
 import org.broad.igv.util.ResourceLocator;
-import htsjdk.tribble.readers.AsciiLineReader;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -229,7 +229,7 @@ public class RNAIGCTDatasetParser {
         if (IGV.hasInstance()) {
             RNAI_MAPPING_URL = IGV.getInstance().getSession().getPersistent(RNAI_MAPPING_URL_KEY, DEFAULT_RNAI_MAPPING_URL);
         } else {
-            RNAI_MAPPING_URL = PreferenceManager.getInstance().getPersistent(RNAI_MAPPING_URL_KEY, DEFAULT_RNAI_MAPPING_URL);
+            RNAI_MAPPING_URL = PreferencesManager.getPreferences().getPersistent(RNAI_MAPPING_URL_KEY, DEFAULT_RNAI_MAPPING_URL);
         }
     }
 

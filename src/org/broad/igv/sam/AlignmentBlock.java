@@ -55,4 +55,9 @@ public interface AlignmentBlock {
     void setPixelRange(int s, int e);
 
     boolean containsPixel(int x) ;
+
+    default int getPadding() {
+        return 0;
+    }
+
 }

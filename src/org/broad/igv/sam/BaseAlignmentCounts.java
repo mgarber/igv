@@ -25,17 +25,20 @@
 
 package org.broad.igv.sam;
 
+import htsjdk.tribble.readers.AsciiLineReader;
 import org.apache.log4j.Logger;
 import org.broad.igv.Globals;
-import org.broad.igv.PreferenceManager;
 import org.broad.igv.feature.Strand;
 import org.broad.igv.feature.genome.GenomeManager;
+import org.broad.igv.prefs.IGVPreferences;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.ui.util.MessageUtils;
 import org.broad.igv.util.ParsingUtils;
 import org.broad.igv.util.ResourceLocator;
-import htsjdk.tribble.readers.AsciiLineReader;
 
 import java.util.*;
+
+import static org.broad.igv.prefs.Constants.*;
 
 /**
  * @author Jim Robinson
@@ -56,15 +59,15 @@ abstract public class BaseAlignmentCounts implements AlignmentCounts {
 
 
     public BaseAlignmentCounts(int start, int end, AlignmentTrack.BisulfiteContext bisulfiteContext) {
-        final PreferenceManager prefs = PreferenceManager.getInstance();
-        String snpsFile = prefs.get(PreferenceManager.KNOWN_SNPS, null);
+        final IGVPreferences prefs = PreferencesManager.getPreferences();
+        String snpsFile = prefs.get(KNOWN_SNPS, null);
         if (snpsFile != null && knownSnps == null) {
             loadKnownSnps(snpsFile);
         }
         this.start = start;
         this.end = end;
 
-        countDeletedBasesCovered = prefs.getAsBoolean(PreferenceManager.SAM_COUNT_DELETED_BASES_COVERED);
+        countDeletedBasesCovered = prefs.getAsBoolean(SAM_COUNT_DELETED_BASES_COVERED);
 
         if (!Globals.isHeadless() && bisulfiteContext != null) {
             bisulfiteCounts = new BisulfiteCounts(bisulfiteContext, GenomeManager.getInstance().getCurrentGenome());
@@ -210,7 +213,7 @@ abstract public class BaseAlignmentCounts implements AlignmentCounts {
      */
     public boolean isConsensusMismatch(int pos, byte ref, String chr, float snpThreshold) {
 
-        boolean qualityWeight = PreferenceManager.getInstance().getAsBoolean(PreferenceManager.SAM_ALLELE_USE_QUALITY);
+        boolean qualityWeight = PreferencesManager.getPreferences().getAsBoolean(SAM_ALLELE_USE_QUALITY);
 
         Set<Integer> filteredSnps = knownSnps == null ? null : knownSnps.get(chr);
 

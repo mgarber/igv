@@ -28,11 +28,11 @@ package org.broad.igv.ui;
 import junit.framework.Assert;
 import org.broad.igv.Globals;
 import org.broad.igv.feature.genome.GenomeListItem;
+import org.broad.igv.ui.commandbar.GenomeListManager;
 import org.broad.igv.feature.genome.GenomeManager;
 import org.broad.igv.track.Track;
 import org.broad.igv.ui.panel.FrameManager;
 import org.broad.igv.ui.panel.ReferenceFrame;
-import org.broad.igv.util.ResourceLocator;
 import org.broad.igv.util.TestUtils;
 import org.fest.swing.fixture.FrameFixture;
 import org.fest.swing.fixture.JButtonFixture;
@@ -42,7 +42,6 @@ import org.junit.Ignore;
 import org.junit.Test;
 
 import java.util.Collection;
-import java.util.List;
 
 import static org.junit.Assert.*;
 
@@ -159,7 +158,7 @@ public class IGVTestHeaded extends AbstractHeadedTest {
      */
     @Test
     public void testLoadNewGenomeById() throws Exception {
-        Collection<GenomeListItem> currentGenomes = GenomeManager.getInstance().getGenomes();
+        Collection<GenomeListItem> currentGenomes = GenomeListManager.getInstance().getGenomeListItems();
         String genomeId = "canFam2";
         for (GenomeListItem genomeListItem : currentGenomes) {
             assertNotSame(genomeId, genomeListItem.getId());

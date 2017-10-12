@@ -44,7 +44,7 @@ public class LongRunningTask implements Callable {
 
     private static Logger log = Logger.getLogger(LongRunningTask.class);
 
-    private static final ExecutorService threadExecutor = Executors.newFixedThreadPool(1);
+    private static final ExecutorService threadExecutor = Executors.newFixedThreadPool(5);
 
     Runnable runnable;
 
@@ -53,7 +53,7 @@ public class LongRunningTask implements Callable {
     }
 
     public static Future submit(Runnable runnable) {
-        if (Globals.isBatch() || !SwingUtilities.isEventDispatchThread()) {
+        if (Globals.isBatch()) {
             runnable.run();
             return null;
         } else {
@@ -74,7 +74,6 @@ public class LongRunningTask implements Callable {
             MessageUtils.showMessage("<html>Unexpected error: " + e.getMessage() + ".<br>See igv.log for more details");
             log.error("Exception running task", e);
         } finally {
-            //log.info("Removing wait cursor " + runnable.getName());
             WaitCursorManager.removeWaitCursor(token);
 
             synchronized (IGV.getInstance()) {

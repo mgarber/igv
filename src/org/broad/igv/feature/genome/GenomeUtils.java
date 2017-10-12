@@ -44,10 +44,13 @@ public class GenomeUtils {
 
     public static void main(String[] args) throws IOException {
 
-        String directory = args[1];
-        String genomeList = args[0];
+        String genomeListFile = args.length > 0 ? args[0] : "genomes/genomes.txt";
+        //String outputDirectory = args.length > 1 ? args[1] : "genomes/sizes";
+        String outputFile = args.length > 1 ? args[1] : "nonFastas.txt";
 
-        updateChromSizes(new File(directory), genomeList);
+        // updateChromSizes(genomeListFile, new File(outputDirectory));
+
+        findNonFastas(genomeListFile, new File(outputFile));
 
 //        mergeINCDCNames(
 //                new File("genomes/alias/hg38_alias.tab"),
@@ -65,7 +68,7 @@ public class GenomeUtils {
      * @param genomeListPath
      * @throws IOException
      */
-    public static void updateChromSizes(File directory, String genomeListPath) throws IOException {
+    public static void updateChromSizes(String genomeListPath, File directory) throws IOException {
 
         // http://igv.broadinstitute.org/genomes/genomes.txt
         // <Server-Side Genome List>
@@ -81,7 +84,7 @@ public class GenomeUtils {
                     String genomeID = tokens[2];
 
                     File outputFile = new File(directory, genomeID + ".chrom.sizes");
-                    if(outputFile.exists()) {
+                    if (outputFile.exists()) {
                         continue;
                     }
 
@@ -217,4 +220,50 @@ public class GenomeUtils {
         pw.close();
 
     }
+
+
+
+    public static void findNonFastas(String genomeListPath, File outputFile) throws IOException {
+
+        // http://igv.broadinstitute.org/genomes/genomes.txt
+        // <Server-Side Genome List>
+        // Human hg19	http://igv.broadinstitute.org/genomes/hg19.genome	hg19
+        BufferedReader br = null;
+        PrintWriter pw = null;
+
+        try {
+            pw = new PrintWriter(new BufferedWriter(new FileWriter(outputFile)));
+            br = ParsingUtils.openBufferedReader(genomeListPath);
+            String nextLine;
+            while ((nextLine = br.readLine()) != null) {
+                String[] tokens = nextLine.split("\t");
+                if (tokens.length > 2) {
+
+                    String genomeID = tokens[2];
+                    String genomePath = tokens[1];
+                    try {
+                        Genome genome = GenomeManager.getInstance().loadGenome(genomePath, null);
+
+                        if (!genome.sequenceIsFasta()) {
+
+//                            File outputFile = new File(directory, genomeID + ".fa");
+//                            if (outputFile.exists()) {
+//                                continue;
+//                            }
+
+                            pw.println("Updating " + genomeID);
+                        }
+
+                    } catch (Exception e) {
+                        System.err.println(e.toString());
+                    }
+                }
+            }
+        } finally {
+            if (br != null) br.close();
+            if(pw != null) pw.close();
+        }
+
+    }
+
 }

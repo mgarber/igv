@@ -26,15 +26,14 @@
 package org.broad.igv.util.blat;
 
 import org.broad.igv.Globals;
-import org.broad.igv.PreferenceManager;
 import org.broad.igv.feature.PSLRecord;
+import org.broad.igv.feature.Strand;
 import org.broad.igv.feature.genome.Genome;
 import org.broad.igv.feature.genome.GenomeManager;
 import org.broad.igv.feature.tribble.PSLCodec;
-import org.broad.igv.track.FeatureCollectionSource;
-import org.broad.igv.track.FeatureSource;
-import org.broad.igv.track.FeatureTrack;
-import org.broad.igv.track.Track;
+import org.broad.igv.prefs.Constants;
+import org.broad.igv.prefs.PreferencesManager;
+import org.broad.igv.track.*;
 import org.broad.igv.ui.IGV;
 import org.broad.igv.ui.util.MessageUtils;
 import org.broad.igv.util.HttpUtils;
@@ -49,9 +48,9 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
 
 /**
  * Port of perl script blatPlot.pl   http://genomewiki.cse.ucsc.edu/index.php/Blat_Scripts
@@ -135,7 +134,7 @@ public class BlatClient {
         }
 
         //$response;
-        String $url = PreferenceManager.getInstance().get(PreferenceManager.BLAT_URL);
+        String $url = PreferencesManager.getPreferences().get(Constants.BLAT_URL);
 
         //if an hgsid was obtained from the output of the first batch
         //then use this.
@@ -221,7 +220,7 @@ public class BlatClient {
         return records;
     }
 
-    public static void doBlatQuery(final String chr, final int start, final int end) {
+    public static void doBlatQuery(final String chr, final int start, final int end, Strand strand) {
 
         if((end - start) > 8000) {
             MessageUtils.showMessage("BLAT searches are limited to 8kb.  Please try a shorter sequence.");
@@ -231,6 +230,10 @@ public class BlatClient {
         Genome genome = GenomeManager.getInstance().getCurrentGenome();
         final byte[] seqBytes = genome.getSequence(chr, start, end);
         String userSeq = new String(seqBytes);
+
+        if(strand == Strand.NEGATIVE) {
+            userSeq = SequenceTrack.getReverseComplement(userSeq);
+        }
 
         doBlatQuery(userSeq);
     }

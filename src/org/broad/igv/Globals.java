@@ -39,15 +39,18 @@ import java.util.regex.Pattern;
  * Date: Feb 3, 2010
  */
 public class Globals {
+    private static Logger log = Logger.getLogger(Globals.class);
 
     public static final int DESIGN_DPI = 96;
     public static final DecimalFormat DECIMAL_FORMAT = new DecimalFormat();
-    private static Logger log = Logger.getLogger(Globals.class);
+    final static public String HISTORY_DELIMITER = ";";
+    public static final String DEFAULT_GENOME = "hg19";
+
+    // External resoure URLs
+    public static final String DEFAULT_GENOME_URL = "http://igv.broadinstitute.org/genomes/genomes.txt";
+    public static final String DEFAULT_DATA_URL = "https://data.broadinstitute.org/igvdata/$$_dataServerRegistry.txt";
 
 
-    /**
-     * CONSTANTS
-     */
     public static final String CHR_ALL = "All";
     public static final String TRACK_NAME_ATTRIBUTE = "NAME";
     public static final String TRACK_DATA_FILE_ATTRIBUTE = "DATA FILE";
@@ -70,23 +73,6 @@ public class Globals {
     final public static String GENOME_FILE_EXTENSION = ".genome";
     final public static String ZIP_EXTENSION = ".zip";
     final public static String GZIP_FILE_EXTENSION = ".gz";
-    final public static String GENOME_ARCHIVE_PROPERTY_FILE_NAME = "property.txt";
-    final public static String GENOME_ARCHIVE_ID_KEY = "id";
-    final public static String GENOME_ARCHIVE_NAME_KEY = "name";
-    final public static String GENOME_ARCHIVE_VERSION_KEY = "version";
-    final public static String GENOME_ORDERED_KEY = "ordered";
-    final public static String GENOME_GENETRACK_NAME = "geneTrackName";
-    final public static String GENOME_URL_KEY = "url";
-    final public static String GENOME_ARCHIVE_CYTOBAND_FILE_KEY = "cytobandFile";
-    final public static String GENOME_ARCHIVE_GENE_FILE_KEY = "geneFile";
-    final public static String GENOME_ARCHIVE_SEQUENCE_FILE_LOCATION_KEY = "sequenceLocation";
-
-    /**
-     * Whether the sequenceLocation has been modified from the version of the .genome
-     * file on the server
-     */
-    public static final String GENOME_ARCHIVE_CUSTOM_SEQUENCE_LOCATION_KEY = "customSequenceLocation";
-    public static final String GENOME_CHR_ALIAS_FILE_KEY = "chrAliasFile";
 
     // Default user folder
 
@@ -130,7 +116,7 @@ public class Globals {
     public static boolean toolsMenuEnabled = false;
     public static boolean development = false;
 
-    public static String versionURL = "http://www.broadinstitute.org/igv/projects/current/version.txt";
+    public static String versionURL = "https://data.broadinstitute.org/igv/projects/current/version.txt";
     public static String downloadURL = "http://www.broadinstitute.org/igv/download";
     static {
         Properties properties = new Properties();
@@ -179,11 +165,11 @@ public class Globals {
     }
 
     public static String applicationString() {
-        return "IGV Version " + VERSION + " (" + BUILD + ")" + TIMESTAMP;
+        return "IGV Version " + VERSION + " "  + TIMESTAMP;
     }
 
     public static String versionString() {
-        return "<html>Version " + VERSION + " (" + BUILD + ")<br>" + TIMESTAMP;
+        return "<html>Version " + VERSION + " " + TIMESTAMP;
     }
 
     public static boolean isDevelopment() {

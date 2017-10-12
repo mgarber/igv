@@ -173,7 +173,7 @@
                     <attribute name="Built-By" value="${user.name}"/>
                     <attribute name="Main-Class" value="${main-class}"/>
 
-                    <section name="org/broad/igv">
+                    <section name="org/broad/igv/">
                         <attribute name="Specification-Title" value="${ant.project.name}"/>
                         <attribute name="Specification-Version" value="${version}"/>
                         <attribute name="Specification-Vendor" value="${vendor}"/>
@@ -253,8 +253,8 @@
             <include name="fest*.jar"/>
             <include name="jcip*.jar"/>
         </fileset>
-        <pathelement location="${testtmp.dir}"/>
-        <pathelement location="${tmp.dir}"/>
+        <pathelement path="${testtmp.dir}"/>
+        <pathelement path="${tmp.dir}"/>
     </path>
 
     <property name="test.reports" value="${basedir}/reports"/>
@@ -310,6 +310,8 @@
         <junit haltonfailure="no" showoutput="${show.test.out}" printsummary="on" failureproperty="tests.failed"
                maxmemory="2000m">
 
+            <jvmarg value="-XX:+IgnoreUnrecognizedVMOptions"/>
+            <jvmarg line="--add-modules=java.xml.bind"/>
             <jvmarg value="-javaagent:${testlib.dir}/JavaAgent.jar"/>
             <jvmarg value="-Dfile.encoding=${java.encoding}"/>
             <jvmarg value="-Dinclude.longrunning=${include.longrunning}"/>
@@ -317,6 +319,7 @@
             <sysproperty key="LARGE_DATA_DIR" value="${LARGE_DATA_DIR}"/>
             <sysproperty key="MONGO_EXEC_PATH" value="${MONGO_EXEC_PATH}"/>
             <sysproperty key="make.fail" value="${make.fail}"/>
+        	<sysproperty key="java.awt.headless" value="true" />
 
             <classpath refid="test.classpath"/>
             <formatter type="xml" usefile="true"/>
@@ -434,45 +437,45 @@
 
     <!-- Build MacOS native app-->
     <!-- Create the app bundle from an input jar-->
-    <macrodef name="bundle-jar-macro">
-        <attribute name="version"/>
-        <attribute name="dist.dir"/>
-        <attribute name="jar.name"/>
-        <sequential>
-            <!-- Define the appbundler task -->
-            <taskdef name="bundleapp" classname="com.oracle.appbundler.AppBundlerTask" classpath="${basedir}/ant/appbundler-1.0.jar"/>
-            <bundleapp outputdirectory="${download.dir}"
-                       name="IGV_@{version}"
-                       displayname="${ant.project.name}"
-                       identifier="${main-class}"
-                       shortversion="${version}"
-                       applicationCategory="public.app-category.developer-tools"
-                       mainclassname="${main-class}"
-                       icon="${basedir}/resources/igv_icon.icns">
-                <!-- Bundle JRE located at dir-->
-                <!--runtime dir="${env.JAVA_HOME}" /-->
-                <classpath dir="@{dist.dir}">
-                    <include name="@{jar.name}"/>
-                    <include name="${batik-codec-finame}"/>
-                    <include name="${goby-io-finame}"/>
-                </classpath>
-                <option value="-Dapple.laf.useScreenMenuBar=true"/>
-                <argument value="-Xmx4g"/>
-                <argument value="-Xdock:name=${ant.project.name}"/>
-            </bundleapp>
+    <!--<macrodef name="bundle-jar-macro">-->
+        <!--<attribute name="version"/>-->
+        <!--<attribute name="dist.dir"/>-->
+        <!--<attribute name="jar.name"/>-->
+        <!--<sequential>-->
+            <!--&lt;!&ndash; Define the appbundler task &ndash;&gt;-->
+            <!--<taskdef name="bundleapp" classname="com.oracle.appbundler.AppBundlerTask" classpath="${basedir}/ant/appbundler-1.0.jar"/>-->
+            <!--<bundleapp outputdirectory="${download.dir}"-->
+                       <!--name="IGV_@{version}"-->
+                       <!--displayname="${ant.project.name}"-->
+                       <!--identifier="${main-class}"-->
+                       <!--shortversion="${version}"-->
+                       <!--applicationCategory="public.app-category.developer-tools"-->
+                       <!--mainclassname="${main-class}"-->
+                       <!--icon="${basedir}/resources/igv_icon.icns">-->
+                <!--&lt;!&ndash; Bundle JRE located at dir&ndash;&gt;-->
+                <!--&lt;!&ndash;runtime dir="${env.JAVA_HOME}" /&ndash;&gt;-->
+                <!--<classpath dir="@{dist.dir}">-->
+                    <!--<include name="@{jar.name}"/>-->
+                    <!--<include name="${batik-codec-finame}"/>-->
+                    <!--<include name="${goby-io-finame}"/>-->
+                <!--</classpath>-->
+                <!--<option value="-Dapple.laf.useScreenMenuBar=true"/>-->
+                <!--<option value="-Xmx4g"/>-->
+                <!--<option value="-Xdock:name=${ant.project.name}"/>-->
+            <!--</bundleapp>-->
 
-        </sequential>
+        <!--</sequential>-->
 
-    </macrodef>
+    <!--</macrodef>-->
 
     <!-- Target to be called  as part of building all-->
-    <target name="bundle" depends="build-all">
-        <bundle-jar-macro version="${version}" dist.dir="${dist.dir}" jar.name="${jar.name}"/>
-    </target>
+    <!--<target name="bundle" depends="build-all">-->
+        <!--<bundle-jar-macro version="${version}" dist.dir="${dist.dir}" jar.name="${jar.name}"/>-->
+    <!--</target>-->
 
     <!-- Target to bundle an existing build -->
-    <target name="bundle-existing">
-        <bundle-jar-macro  version="${version}" dist.dir="${dist.dir}" jar.name="${jar.name}"/>
-    </target>
+    <!--<target name="bundle-existing">-->
+        <!--<bundle-jar-macro  version="${version}" dist.dir="${dist.dir}" jar.name="${jar.name}"/>-->
+    <!--</target>-->
 
 </project>

@@ -31,14 +31,16 @@ package org.broad.igv.sam;
 
 import org.apache.log4j.Logger;
 import org.broad.igv.Globals;
-import org.broad.igv.PreferenceManager;
 import org.broad.igv.feature.Strand;
 import org.broad.igv.feature.genome.Genome;
 import org.broad.igv.feature.genome.GenomeManager;
+import org.broad.igv.prefs.Constants;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.track.WindowFunction;
 
 import java.awt.*;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -94,11 +96,11 @@ public abstract class SAMAlignment implements Alignment {
     String chr;
     protected int start;  // <= Might differ from alignment start if soft clipping is considered
     protected int end;    // ditto
-    protected Color color = null;
+    protected Color ycColor = null;
 
     ReadMate mate;
-    AlignmentBlockImpl[] alignmentBlocks;
-    AlignmentBlockImpl[] insertions;
+    public AlignmentBlockImpl[] alignmentBlocks;
+    public AlignmentBlockImpl[] insertions;
     List<Gap> gaps;
     char[] gapTypes;
 
@@ -128,8 +130,8 @@ public abstract class SAMAlignment implements Alignment {
         return mate;
     }
 
-    public Color getColor() {
-        return color;
+    public Color getYcColor() {
+        return ycColor;
     }
 
     abstract public String getReadName();
@@ -235,9 +237,6 @@ public abstract class SAMAlignment implements Alignment {
      * @param cigarString
      * @param readBases
      * @param readBaseQualities
-     * @param flowSignals       from the FZ tag, null if not present
-     * @param flowOrder         from the RG.FO header tag, null if not present
-     * @param flowOrderStart
      */
     protected void createAlignmentBlocks(String cigarString, byte[] readBases, byte[] readBaseQualities) {
 
@@ -250,7 +249,7 @@ public abstract class SAMAlignment implements Alignment {
         // Create list of cigar operators
         java.util.List<CigarOperator> operators = buildOperators(cigarString);
 
-        boolean showSoftClipped = PreferenceManager.getInstance().getAsBoolean(PreferenceManager.SAM_SHOW_SOFT_CLIPPED);
+        boolean showSoftClipped = PreferencesManager.getPreferences().getAsBoolean(Constants.SAM_SHOW_SOFT_CLIPPED);
 
         int nInsertions = 0;
         int nBlocks = 0;
@@ -311,7 +310,7 @@ public abstract class SAMAlignment implements Alignment {
         int blockIdx = 0;
         int insertionIdx = 0;
         int gapIdx = 0;
-
+        int padding = 0;
         prevOp = 0;
         for (int i = 0; i < operators.size(); i++) {
             CigarOperator op = operators.get(i);
@@ -361,13 +360,13 @@ public abstract class SAMAlignment implements Alignment {
                     gapTypes[gapIdx++] = ZERO_GAP;
                     AlignmentBlockImpl block = buildAlignmentBlock(readBases, readBaseQualities,
                             blockStart, fromIdx, op.nBases, false);
-
+                    block.setPadding(padding);
                     insertions[insertionIdx++] = block;
                     fromIdx += op.nBases;
+                    padding = 0;
                 } else if (op.operator == PADDING) {
-                    //Padding represents a deletion against the padded reference
-                    //But we don't have the padded reference
-                    gapTypes[gapIdx++] = ZERO_GAP;
+                    // Padding for insertion start, which should be the next operator
+                    padding += op.nBases;
                 }
             } catch (Exception e) {
                 log.error("Error processing CIGAR string", e);
@@ -408,10 +407,7 @@ public abstract class SAMAlignment implements Alignment {
                 int nBases = Integer.parseInt(buffer.toString());
                 buffer.setLength(0);
 
-                if (op == PADDING) {
-                    // Just skip padding for now
-                    continue;
-                } else if (prevOp != null && prevOp.operator == op) {
+                 if (prevOp != null && prevOp.operator == op) {
                     prevOp.nBases += nBases;
                 } else {
                     prevOp = new CigarOperator(nBases, op);
@@ -423,6 +419,8 @@ public abstract class SAMAlignment implements Alignment {
         return operators;
 
     }
+
+
 
     private static AlignmentBlockImpl buildAlignmentBlock(byte[] readBases, byte[] readBaseQualities, int blockStart,
                                                           int fromIdx, int nBases, boolean checkNBasesAvailable) {
@@ -479,18 +477,18 @@ public abstract class SAMAlignment implements Alignment {
 
                 if (block.containsPixel(mouseX)) {
 
-                        byte[] bases = block.getBases();
-                        if (bases == null) {
-                            buf.append("Insertion: " + block.getLength() + " bases");
+                    byte[] bases = block.getBases();
+                    if (bases == null) {
+                        buf.append("Insertion: " + block.getLength() + " bases");
+                    } else {
+                        if (bases.length < 50) {
+                            buf.append("Insertion (" + bases.length + " bases): " + new String(bases));
                         } else {
-                            if (bases.length < 50) {
-                                buf.append( "Insertion: " + new String(bases));
-                            } else {
-                                int len = bases.length;
-                                buf.append( "Insertion: " + new String(Arrays.copyOfRange(bases, 0, 25)) + "..." +
-                                        new String(Arrays.copyOfRange(bases, len - 25, len)));
-                            }
+                            int len = bases.length;
+                            buf.append("Insertion (" + bases.length + " bases): " + new String(Arrays.copyOfRange(bases, 0, 25)) + "..." +
+                                    new String(Arrays.copyOfRange(bases, len - 25, len)));
                         }
+                    }
                     return buf.toString();
                 }
             }
@@ -725,6 +723,15 @@ public abstract class SAMAlignment implements Alignment {
     @Override
     public void finish() {
 
+    }
+
+    @Override
+    public AlignmentBlock getInsertionAt(int position) {
+        for (AlignmentBlock block : insertions) {
+            if (block.getStart() == position) return block;
+            if (block.getStart() > position) return null;  // Blocks increase lineraly
+        }
+        return null;
     }
 
 

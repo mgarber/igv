@@ -29,14 +29,12 @@ import apple.dts.samplecode.osxadapter.OSXAdapter;
 import org.apache.log4j.Logger;
 import org.broad.igv.DirectoryManager;
 import org.broad.igv.Globals;
-import org.broad.igv.PreferenceManager;
 import org.broad.igv.annotations.ForTesting;
 import org.broad.igv.charts.ScatterPlotUtils;
 import org.broad.igv.cli_plugin.PluginSpecReader;
 import org.broad.igv.cli_plugin.ui.RunPlugin;
 import org.broad.igv.cli_plugin.ui.SetPluginPathDialog;
 import org.broad.igv.dev.db.DBProfileEditor;
-import org.broad.igv.feature.genome.GenomeListItem;
 import org.broad.igv.feature.genome.GenomeManager;
 import org.broad.igv.ga4gh.Ga4ghAPIHelper;
 import org.broad.igv.ga4gh.OAuthUtils;
@@ -44,18 +42,26 @@ import org.broad.igv.gs.GSOpenSessionMenuAction;
 import org.broad.igv.gs.GSSaveSessionMenuAction;
 import org.broad.igv.gs.GSUtils;
 import org.broad.igv.lists.GeneListManagerUI;
-import org.broad.igv.lists.VariantListManager;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.tools.IgvToolsGui;
 import org.broad.igv.tools.motiffinder.MotifFinderPlugin;
 import org.broad.igv.track.CombinedDataSourceDialog;
 import org.broad.igv.ui.action.*;
+import org.broad.igv.event.GenomeChangeEvent;
+import org.broad.igv.event.IGVEventBus;
+import org.broad.igv.event.IGVEventObserver;
+import org.broad.igv.feature.genome.RemoveGenomesDialog;
+import org.broad.igv.ui.commandbar.GenomeComboBox;
 import org.broad.igv.ui.legend.LegendDialog;
 import org.broad.igv.ui.panel.FrameManager;
 import org.broad.igv.ui.panel.MainPanel;
 import org.broad.igv.ui.panel.ReferenceFrame;
 import org.broad.igv.ui.panel.ReorderPanelsDialog;
 import org.broad.igv.ui.util.*;
-import org.broad.igv.util.*;
+import org.broad.igv.util.BrowserLauncher;
+import org.broad.igv.util.HttpUtils;
+import org.broad.igv.util.LongRunningTask;
+import org.broad.igv.util.ResourceLocator;
 import org.broad.igv.util.blat.BlatClient;
 import org.broad.igv.util.encode.EncodeFileBrowser;
 
@@ -76,6 +82,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 
+import static org.broad.igv.prefs.Constants.*;
 import static org.broad.igv.ui.UIConstants.*;
 
 /**
@@ -85,7 +92,7 @@ import static org.broad.igv.ui.UIConstants.*;
  * @author jrobinso
  * @date Apr 4, 2011
  */
-public class IGVMenuBar extends JMenuBar {
+public class IGVMenuBar extends JMenuBar implements IGVEventObserver {
 
     private static Logger log = Logger.getLogger(IGVMenuBar.class);
     public static final String GENOMESPACE_REG_TOOLTIP = "Register for GenomeSpace";
@@ -109,12 +116,15 @@ public class IGVMenuBar extends JMenuBar {
 
     private static IGVMenuBar instance;
     private JMenu googleMenu;
+    private JMenuItem encodeMenuItem;
 
     public void notifyGenomeServerReachable(boolean reachable) {
         if (loadFromServerMenuItem != null) {
-            loadFromServerMenuItem.setEnabled(reachable);
-            String tooltip = reachable ? LOAD_GENOME_SERVER_TOOLTIP : CANNOT_LOAD_GENOME_SERVER_TOOLTIP;
-            loadFromServerMenuItem.setToolTipText(tooltip);
+            UIUtilities.invokeOnEventThread(() -> {
+                loadFromServerMenuItem.setEnabled(reachable);
+                String tooltip = reachable ? LOAD_GENOME_SERVER_TOOLTIP : CANNOT_LOAD_GENOME_SERVER_TOOLTIP;
+                loadFromServerMenuItem.setToolTipText(tooltip);
+            });
         }
     }
 
@@ -129,7 +139,7 @@ public class IGVMenuBar extends JMenuBar {
             }
             throw new IllegalStateException("Cannot create another IGVMenuBar, use getInstance");
         }
-        instance = new IGVMenuBar(igv);
+        UIUtilities.invokeAndWaitOnEventThread(() ->instance = new IGVMenuBar(igv));
         return instance;
     }
 
@@ -145,6 +155,9 @@ public class IGVMenuBar extends JMenuBar {
         for (AbstractButton menu : createMenus()) {
             add(menu);
         }
+
+        IGVEventBus.getInstance().subscribe(GenomeChangeEvent.class, this);
+
 
         //This is for Macs, so showing the about dialog
         //from the command bar does what we want.
@@ -178,7 +191,7 @@ public class IGVMenuBar extends JMenuBar {
         menus.add(extrasMenu);
 
         googleMenu = createGoogleMenu();
-        googleMenu.setVisible(PreferenceManager.getInstance().getAsBoolean(PreferenceManager.ENABLE_GOOGLE_MENU));
+        googleMenu.setVisible(PreferencesManager.getPreferences().getAsBoolean(ENABLE_GOOGLE_MENU));
         menus.add(googleMenu);
 
         menus.add(createHelpMenu());
@@ -312,12 +325,9 @@ public class IGVMenuBar extends JMenuBar {
                     //Don't let the user change the path in that case
                     if (tool.defaultPath != null) {
                         JMenuItem setPathItem = new JMenuItem(String.format("Set path to %s...", toolName));
-                        setPathItem.addActionListener(new ActionListener() {
-                            @Override
-                            public void actionPerformed(ActionEvent e) {
-                                (new SetPluginPathDialog(IGV.getMainFrame(), pluginSpecReader, tool)).setVisible(true);
-                                refreshToolsMenu();
-                            }
+                        setPathItem.addActionListener(e -> {
+                            (new SetPluginPathDialog(IGV.getMainFrame(), pluginSpecReader, tool)).setVisible(true);
+                            refreshToolsMenu();
                         });
                         toolMenu.add(setPathItem);
                     }
@@ -389,7 +399,7 @@ public class IGVMenuBar extends JMenuBar {
     }
 
 
-    private JMenu createFileMenu() {
+    JMenu createFileMenu() {
 
         List<JComponent> menuItems = new ArrayList<JComponent>();
         MenuAction menuAction = null;
@@ -409,19 +419,21 @@ public class IGVMenuBar extends JMenuBar {
         menuAction.setToolTipText(UIConstants.LOAD_SERVER_DATA_TOOLTIP);
         menuItems.add(MenuAndToolbarUtils.createMenuItem(menuAction));
 
-        menuAction = new LoadFromURLMenuAction(LoadFromURLMenuAction.LOAD_FROM_DAS, KeyEvent.VK_D, igv);
-        menuItems.add(MenuAndToolbarUtils.createMenuItem(menuAction));
+//        menuAction = new LoadFromURLMenuAction(LoadFromURLMenuAction.LOAD_FROM_DAS, KeyEvent.VK_D, igv);
+//        menuItems.add(MenuAndToolbarUtils.createMenuItem(menuAction));
 
-        if (PreferenceManager.getInstance().getAsBoolean(PreferenceManager.DB_ENABLED)) {
+        if (PreferencesManager.getPreferences().getAsBoolean(DB_ENABLED)) {
             menuAction = new LoadFromDatabaseAction("Load from Database...", 0, igv);
             menuItems.add(MenuAndToolbarUtils.createMenuItem(menuAction));
         }
 
+
+
+        encodeMenuItem = MenuAndToolbarUtils.createMenuItem(new BrowseEncodeAction("Load from ENCODE (2012)...", KeyEvent.VK_E, igv));
+        menuItems.add(encodeMenuItem);
         String genomeId = IGV.getInstance().getGenomeManager().getGenomeId();
-        if (EncodeFileBrowser.genomeSupported(genomeId)) {
-            menuAction = new BrowseEncodeAction("Load from ENCODE...", KeyEvent.VK_E, igv);
-            menuItems.add(MenuAndToolbarUtils.createMenuItem(menuAction));
-        }
+        encodeMenuItem.setVisible (EncodeFileBrowser.genomeSupported(genomeId));
+
 
         menuAction = new BrowseGa4ghAction("Load from Ga4gh...", KeyEvent.VK_G, igv);
         menuItems.add(MenuAndToolbarUtils.createMenuItem(menuAction));
@@ -477,7 +489,7 @@ public class IGVMenuBar extends JMenuBar {
         igv.getRecentSessionList().clear();
 
         // Retrieve the stored session paths
-        String recentSessions = PreferenceManager.getInstance().getRecentSessions();
+        String recentSessions = PreferencesManager.getPreferences().getRecentSessions();
         if (recentSessions != null) {
             String[] sessions = recentSessions.split(";");
             for (String sessionPath : sessions) {
@@ -506,25 +518,6 @@ public class IGVMenuBar extends JMenuBar {
         return fileMenu;
     }
 
-    private void notifyGenomesAddedRemoved(List<GenomeListItem> selectedValues, boolean added) {
-        if (selectedValues == null || selectedValues.size() == 0) return;
-        int size = selectedValues.size();
-        String msg = "";
-        if (size == 1) {
-            msg += selectedValues.get(0) + " genome";
-        } else {
-            msg += size + " genomes";
-        }
-        if (added) {
-            msg += " added to";
-        } else {
-            msg += " removed from";
-        }
-        msg += " list";
-
-        MessageUtils.setStatusBarMessage(msg);
-    }
-
     private JMenu createGenomesMenu() {
         List<JComponent> menuItems = new ArrayList<JComponent>();
         MenuAction menuAction = null;
@@ -535,8 +528,17 @@ public class IGVMenuBar extends JMenuBar {
                     @Override
                     public void actionPerformed(ActionEvent event) {
                         try {
-                            org.broad.igv.ui.util.ProgressMonitor monitor = new org.broad.igv.ui.util.ProgressMonitor();
-                            igv.doLoadGenome(monitor);
+                            File importDirectory = PreferencesManager.getPreferences().getLastGenomeImportDirectory();
+                            if (importDirectory == null) {
+                                PreferencesManager.getPreferences().setLastGenomeImportDirectory(DirectoryManager.getUserDirectory());
+                            }
+                            // Display the dialog
+                            File file = FileDialogUtils.chooseFile("Load Genome", importDirectory, FileDialog.LOAD);
+
+                            // If a file selection was made
+                            if (file != null) {
+                                GenomeManager.getInstance().loadGenome(file.getAbsolutePath(), null);
+                            }
                         } catch (Exception e) {
                             MessageUtils.showErrorMessage(e.getMessage(), e);
                         }
@@ -555,12 +557,27 @@ public class IGVMenuBar extends JMenuBar {
         menuAction = new MenuAction("Load Genome From Server...", null) {
             @Override
             public void actionPerformed(ActionEvent event) {
-                IGV.getInstance().loadGenomeFromServerAction();
+                GenomeComboBox.loadGenomeFromServer();
             }
         };
         menuAction.setToolTipText(LOAD_GENOME_SERVER_TOOLTIP);
         loadFromServerMenuItem = MenuAndToolbarUtils.createMenuItem(menuAction);
         menuItems.add(loadFromServerMenuItem);
+
+
+        menuItems.add(new JSeparator());
+
+        // Add genome to combo box from server
+        menuAction = new MenuAction("Remove genomes ...", null) {
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                RemoveGenomesDialog dialog2 = new RemoveGenomesDialog(IGV.getMainFrame());
+                dialog2.setVisible(true);
+            }
+        };
+        menuAction.setToolTipText("Remove genomes which appear in the dropdown list");
+        menuItems.add(MenuAndToolbarUtils.createMenuItem(menuAction));
+
 
         menuItems.add(new JSeparator());
 
@@ -570,52 +587,11 @@ public class IGVMenuBar extends JMenuBar {
                     public void actionPerformed(ActionEvent event) {
                         javax.swing.ProgressMonitor monitor = new javax.swing.ProgressMonitor(IGV.getInstance().getMainPanel(),
                                 "Creating genome", null, 0, 100);
-                        igv.doDefineGenome(monitor);
+                        igv.defineGenome(monitor);
                     }
                 };
 
         menuAction.setToolTipText(UIConstants.IMPORT_GENOME_TOOLTIP);
-        menuItems.add(MenuAndToolbarUtils.createMenuItem(menuAction));
-
-        menuItems.add(new JSeparator());
-
-        // Add genome to combo box from server
-        menuAction = new MenuAction("Manage Genome List...", null) {
-            @Override
-            public void actionPerformed(ActionEvent event) {
-                ManageGenomesDialog dialog2 = new ManageGenomesDialog(IGV.getMainFrame());
-                dialog2.setVisible(true);
-                boolean cancelled = dialog2.isCancelled();
-                List<GenomeListItem> removedValuesList = dialog2.getRemovedValuesList();
-
-                if (!cancelled) {
-
-                    if (removedValuesList != null && !removedValuesList.isEmpty()) {
-                        try {
-                            GenomeManager.getInstance().deleteDownloadedGenomes(removedValuesList);
-                        } catch (IOException e) {
-                            MessageUtils.showErrorMessage("Error deleting genome files", e);
-                        }
-                        GenomeManager.getInstance().updateImportedGenomePropertyFile();
-                        notifyGenomesAddedRemoved(removedValuesList, false);
-
-                        String defaultGenomeKey = PreferenceManager.getInstance().get(PreferenceManager.DEFAULT_GENOME_KEY);
-                        for (GenomeListItem item : removedValuesList) {
-                            if (defaultGenomeKey.equals(item.getId())) {
-                                PreferenceManager.getInstance().remove(PreferenceManager.DEFAULT_GENOME_KEY);
-                                break;
-                            }
-                        }
-                    }
-
-                    GenomeManager.getInstance().buildGenomeItemList();
-
-                    igv.getContentPane().getCommandBar().refreshGenomeListComboBox();
-
-                }
-            }
-        };
-        menuAction.setToolTipText("Add, remove, or reorder genomes which appear in the dropdown list");
         menuItems.add(MenuAndToolbarUtils.createMenuItem(menuAction));
 
         MenuAction genomeMenuAction = new MenuAction("Genomes", null);
@@ -726,7 +702,7 @@ public class IGVMenuBar extends JMenuBar {
                     try {
                         Integer w = Integer.parseInt(newValue);
                         if (w <= 0 || w == 1000) throw new NumberFormatException();
-                        PreferenceManager.getInstance().put(PreferenceManager.NAME_PANEL_WIDTH, newValue);
+                        PreferencesManager.getPreferences().put(NAME_PANEL_WIDTH, newValue);
                         mainPanel.setNamePanelWidth(w);
                     } catch (NumberFormatException ex) {
                         MessageUtils.showErrorMessage("Error: value must be a positive integer < 1000.", ex);
@@ -738,7 +714,7 @@ public class IGVMenuBar extends JMenuBar {
         menuItems.add(panelWidthmenuItem);
 
         // Hide or Show the attribute panels
-        boolean isShow = PreferenceManager.getInstance().getAsBoolean(PreferenceManager.SHOW_ATTRIBUTE_VIEWS_KEY);
+        boolean isShow = PreferencesManager.getPreferences().getAsBoolean(SHOW_ATTRIBUTE_VIEWS_KEY);
         IGV.getInstance().doShowAttributeDisplay(isShow);  // <= WEIRD doing IGV.getInstance() here!
 
         menuAction = new MenuAction("Show Attribute Display", null, KeyEvent.VK_A) {
@@ -746,7 +722,7 @@ public class IGVMenuBar extends JMenuBar {
             public void actionPerformed(ActionEvent e) {
 
                 JCheckBoxMenuItem menuItem = (JCheckBoxMenuItem) e.getSource();
-                PreferenceManager.getInstance().setShowAttributeView(menuItem.getState());
+                PreferencesManager.getPreferences().setShowAttributeView(menuItem.getState());
                 IGV.getInstance().getMainPanel().invalidate();
                 IGV.getInstance().doRefresh();
             }
@@ -927,33 +903,39 @@ public class IGVMenuBar extends JMenuBar {
 
         try {
             Main.Version thisVersion = Main.Version.getVersion(Globals.VERSION);
-            if (thisVersion == null) return;  // Can't compare
 
-            Globals.CONNECT_TIMEOUT = 5000;
-            Globals.READ_TIMEOUT = 1000;
-            final String serverVersionString = HttpUtils.getInstance().getContentsAsString(new URL(Globals.getVersionURL())).trim();
-            // See if user has specified to skip this update
+            if (thisVersion != null) {
 
-            final String skipString = PreferenceManager.getInstance().get(PreferenceManager.SKIP_VERSION);
-            HashSet<String> skipVersion = new HashSet<String>(Arrays.asList(skipString.split(",")));
-            if (skipVersion.contains(serverVersionString)) return;
+                Globals.CONNECT_TIMEOUT = 5000;
+                Globals.READ_TIMEOUT = 1000;
+                final String serverVersionString = HttpUtils.getInstance().getContentsAsString(new URL(Globals.getVersionURL())).trim();
+                // See if user has specified to skip this update
 
-            Main.Version serverVersion = Main.Version.getVersion(serverVersionString.trim());
-            if (serverVersion == null) return;
+                final String skipString = PreferencesManager.getPreferences().get(SKIP_VERSION);
+                HashSet<String> skipVersion = new HashSet<String>(Arrays.asList(skipString.split(",")));
+                if (skipVersion.contains(serverVersionString)) return;
 
-            if (thisVersion.lessThan(serverVersion)) {
+                Main.Version serverVersion = Main.Version.getVersion(serverVersionString.trim());
+                if (serverVersion == null) return;
 
-                log.info("A later version of IGV is available (" + serverVersionString + ")");
-                final VersionUpdateDialog dlg = new VersionUpdateDialog(serverVersionString);
+                if (thisVersion.lessThan(serverVersion)) {
 
-                dlg.setVisible(true);
-                if (dlg.isSkipVersion()) {
-                    String newSkipString = skipString + "," + serverVersionString;
-                    PreferenceManager.getInstance().put(PreferenceManager.SKIP_VERSION, newSkipString);
+                    log.info("A later version of IGV is available (" + serverVersionString + ")");
+                    final VersionUpdateDialog dlg = new VersionUpdateDialog(serverVersionString);
+
+                    dlg.setVisible(true);
+                    if (dlg.isSkipVersion()) {
+                        String newSkipString = skipString + "," + serverVersionString;
+                        PreferencesManager.getPreferences().put(SKIP_VERSION, newSkipString);
+                    }
+
+                } else {
+                    MessageUtils.showMessage("IGV is up to date");
                 }
-
             } else {
-                MessageUtils.showMessage("IGV is up to date");
+                if (Globals.VERSION.contains("3.0_beta") || Globals.VERSION.contains("snapshot")) {
+                    HttpUtils.getInstance().getContentsAsString(new URL(Globals.getVersionURL())).trim();
+                }
             }
 
         } catch (Exception e) {
@@ -1014,7 +996,7 @@ public class IGVMenuBar extends JMenuBar {
         menu.add(MenuAndToolbarUtils.createMenuItem(menuAction));
 
 
-        menu.setVisible(PreferenceManager.getInstance().getAsBoolean(PreferenceManager.GENOME_SPACE_ENABLE));
+        menu.setVisible(PreferencesManager.getPreferences().getAsBoolean(GENOME_SPACE_ENABLE));
 
 
         return menu;
@@ -1030,15 +1012,6 @@ public class IGVMenuBar extends JMenuBar {
         menuAction = new ResetPreferencesAction("Reset Preferences", IGV.getInstance());
         menuItems.add(MenuAndToolbarUtils.createMenuItem(menuAction));
 
-        menuItems.add(new JSeparator());
-
-        menuAction = new MenuAction("Variant list ...  *EXPERIMENTAL*") {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                VariantListManager.openNavigator(IGV.getMainFrame());
-            }
-        };
-        menuItems.add(MenuAndToolbarUtils.createMenuItem(menuAction));
 
         menuItems.add(new JSeparator());
 
@@ -1133,7 +1106,8 @@ public class IGVMenuBar extends JMenuBar {
 
     private JMenu createGoogleMenu() {
 
-        final JMenu menu = new JMenu("Google");
+    	// Dynamically name menu - dwm08
+        JMenu menu =  new JMenu(OAuthUtils.authProvider);
 
         final JMenuItem login = new JMenuItem("Login ... ");
         login.addActionListener(new ActionListener() {
@@ -1268,6 +1242,9 @@ public class IGVMenuBar extends JMenuBar {
             IGV.getInstance().saveStateForExit();
 
             Frame mainFrame = IGV.getMainFrame();
+
+            PreferencesManager.getPreferences().setApplicationFrameBounds(mainFrame.getBounds());
+
             // Hide and close the application
             mainFrame.setVisible(false);
             mainFrame.dispose();
@@ -1285,5 +1262,13 @@ public class IGVMenuBar extends JMenuBar {
 
     public void enableGoogleMenu(boolean aBoolean) {
         googleMenu.setVisible(aBoolean);
+    }
+
+    @Override
+    public void receiveEvent(final Object event) {
+
+        if(event instanceof GenomeChangeEvent) {
+            UIUtilities.invokeOnEventThread(() -> encodeMenuItem.setVisible (EncodeFileBrowser.genomeSupported(((GenomeChangeEvent) event).genome.getId())));
+        }
     }
 }

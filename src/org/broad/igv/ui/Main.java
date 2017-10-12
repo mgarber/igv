@@ -26,13 +26,14 @@
 package org.broad.igv.ui;
 
 import com.jidesoft.plaf.LookAndFeelFactory;
-import jargs.gnu.CmdLineParser;
 import htsjdk.samtools.seekablestream.SeekableStreamFactory;
+import jargs.gnu.CmdLineParser;
 import org.apache.log4j.Logger;
 import org.broad.igv.DirectoryManager;
 import org.broad.igv.Globals;
-import org.broad.igv.PreferenceManager;
-import org.broad.igv.ui.event.GlobalKeyDispatcher;
+import org.broad.igv.prefs.IGVPreferences;
+import org.broad.igv.prefs.PreferencesManager;
+import org.broad.igv.util.FileUtils;
 import org.broad.igv.util.HttpUtils;
 import org.broad.igv.util.RuntimeUtils;
 import org.broad.igv.util.stream.IGVSeekableStreamFactory;
@@ -42,10 +43,13 @@ import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.File;
+import java.io.UnsupportedEncodingException;
 import java.net.URL;
 import java.net.URLDecoder;
 import java.util.Arrays;
 import java.util.HashSet;
+
+import static org.broad.igv.prefs.Constants.*;
 
 
 /**
@@ -78,20 +82,34 @@ public class Main {
 
         Thread.setDefaultUncaughtExceptionHandler(new DefaultExceptionHandler());
 
-        Main.IGVArgs igvArgs = new Main.IGVArgs(args);
+        final Main.IGVArgs igvArgs = new Main.IGVArgs(args);
 
         // Do this early
         if (igvArgs.igvDirectory != null) {
             setIgvDirectory(igvArgs);
         }
 
-        initApplication();
+        Runnable runnable = new Runnable() {
+            public void run() {
 
-        JFrame frame = new JFrame();
-        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        ImageIcon icon = new ImageIcon(Main.class.getResource("mainframeicon.png"));
-        if (icon != null) frame.setIconImage(icon.getImage());
-        open(frame, igvArgs);
+                // This is a workaround for an internal JVM crash that was happening on Windows 10 (Creators Update).
+                // TODO: remove when enough users have migrated to Java 8u141 or greater.
+                // http://bugs.java.com/bugdatabase/view_bug.do?bug_id=JDK-8179014
+                if (Globals.IS_WINDOWS && System.getProperty("os.name").contains("10")) {
+                    UIManager.put("FileChooser.useSystemExtensionHiding", false);
+                }
+
+                initApplication();
+
+                JFrame frame = new JFrame();
+                frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+                ImageIcon icon = new ImageIcon(Main.class.getResource("mainframeicon.png"));
+                if (icon != null) frame.setIconImage(icon.getImage());
+                open(frame, igvArgs);
+            }
+        };
+
+        SwingUtilities.invokeLater(runnable);
 
     }
 
@@ -154,51 +172,45 @@ public class Main {
 
     public static void updateTooltipSettings() {
         ToolTipManager.sharedInstance().setEnabled(true);
-        final PreferenceManager prefMgr = PreferenceManager.getInstance();
-        ToolTipManager.sharedInstance().setInitialDelay(prefMgr.getAsInt(PreferenceManager.TOOLTIP_INITIAL_DELAY));
-        ToolTipManager.sharedInstance().setReshowDelay(prefMgr.getAsInt(PreferenceManager.TOOLTIP_RESHOW_DELAY));
-        ToolTipManager.sharedInstance().setDismissDelay(prefMgr.getAsInt(PreferenceManager.TOOLTIP_DISMISS_DELAY));
+        final IGVPreferences prefMgr = PreferencesManager.getPreferences();
+        ToolTipManager.sharedInstance().setInitialDelay(prefMgr.getAsInt(TOOLTIP_INITIAL_DELAY));
+        ToolTipManager.sharedInstance().setReshowDelay(prefMgr.getAsInt(TOOLTIP_RESHOW_DELAY));
+        ToolTipManager.sharedInstance().setDismissDelay(prefMgr.getAsInt(TOOLTIP_DISMISS_DELAY));
 
     }
 
     private static void checkVersion() {
 
-        Runnable runnable = new Runnable() {
-            public void run() {
-                try {
-                    Version thisVersion = Version.getVersion(Globals.VERSION);
-                    if (thisVersion == null) return;  // Can't compare
+        Runnable runnable = () -> {
+            try {
+                Version thisVersion = Version.getVersion(Globals.VERSION);
+                if (thisVersion != null) {
 
                     final String serverVersionString = HttpUtils.getInstance().getContentsAsString(new URL(Globals.getVersionURL())).trim();
                     // See if user has specified to skip this update
 
-                    final String skipString = PreferenceManager.getInstance().get(PreferenceManager.SKIP_VERSION);
-                    HashSet<String> skipVersion = new HashSet<String>(Arrays.asList(skipString.split(",")));
-                    if (skipVersion.contains(serverVersionString)) return;
+                    final String skipString = PreferencesManager.getPreferences().get(SKIP_VERSION);
+                    if(skipString != null) {
+                        HashSet<String> skipVersion = new HashSet<>(Arrays.asList(skipString.split(",")));
+                        if (skipVersion.contains(serverVersionString)) return;
+                    }
 
                     Version serverVersion = Version.getVersion(serverVersionString.trim());
                     if (serverVersion == null) return;
 
                     if (thisVersion.lessThan(serverVersion)) {
-
                         log.info("A later version of IGV is available (" + serverVersionString + ")");
-        //                final VersionUpdateDialog dlg = new VersionUpdateDialog(serverVersionString);
-        //                SwingUtilities.invokeAndWait(new Runnable() {
-        //                    public void run() {
-        //                        dlg.setVisible(true);
-        //                        if (dlg.isSkipVersion()) {
-        //                            String newSkipString = skipString + "," + serverVersionString;
-        //                            PreferenceManager.getInstance().put(PreferenceManager.SKIP_VERSION, newSkipString);
-        //                        }
-        //                    }
-        //                });
                     }
-
-                } catch (Exception e) {
-                    log.error("Error checking version", e);
-                } finally {
-
+                } else if (Globals.VERSION.contains("3.0_beta") || Globals.VERSION.contains("snapshot")) {
+                    HttpUtils.getInstance().getContentsAsString(new URL(Globals.getVersionURL())).trim();
+                } else {
+                    log.info("Unknown version: " + Globals.VERSION);
                 }
+
+            } catch (Exception e) {
+                log.error("Error checking version", e);
+            } finally {
+
             }
         };
 
@@ -254,18 +266,18 @@ public class Main {
 
         // Optional arguments
         if (igvArgs.getPropertyOverrides() != null) {
-            PreferenceManager.getInstance().loadOverrides(igvArgs.getPropertyOverrides());
+            PreferencesManager.loadOverrides(igvArgs.getPropertyOverrides());
         }
         if (igvArgs.getDataServerURL() != null) {
-            PreferenceManager.getInstance().overrideDataServerURL(igvArgs.getDataServerURL());
+            PreferencesManager.getPreferences().overrideDataServerURL(igvArgs.getDataServerURL());
         }
         if (igvArgs.getGenomeServerURL() != null) {
-            PreferenceManager.getInstance().overrideGenomeServerURL(igvArgs.getGenomeServerURL());
+            PreferencesManager.getPreferences().overrideGenomeServerURL(igvArgs.getGenomeServerURL());
         }
 
 
         HttpUtils.getInstance().updateProxySettings();
-        //AbstractFeatureReader.setComponentMethods(new IGVComponentMethods());
+
         SeekableStreamFactory.setInstance(IGVSeekableStreamFactory.getInstance());
 
         RuntimeUtils.loadPluginJars();
@@ -286,12 +298,12 @@ public class Main {
         }
 
         double resolutionScale = Toolkit.getDefaultToolkit().getScreenResolution() / Globals.DESIGN_DPI;
-        final PreferenceManager prefMgr = PreferenceManager.getInstance();
+        final IGVPreferences prefMgr = PreferencesManager.getPreferences();
         if (resolutionScale > 1.5) {
-            if (prefMgr.getAsBoolean(PreferenceManager.SCALE_FONTS)) {
+            if (prefMgr.getAsBoolean(SCALE_FONTS)) {
                 FontManager.scaleFontSize(resolutionScale);
-            } else if (prefMgr.hasExplicitValue(PreferenceManager.DEFAULT_FONT_SIZE)) {
-                int fs = prefMgr.getAsInt(PreferenceManager.DEFAULT_FONT_SIZE);
+            } else if (prefMgr.hasExplicitValue(DEFAULT_FONT_SIZE)) {
+                int fs = prefMgr.getAsInt(DEFAULT_FONT_SIZE);
                 FontManager.updateSystemFontSize(fs);
             }
         }
@@ -388,6 +400,7 @@ public class Main {
         private String coverageFile = null;
         private String name = null;
         public String igvDirectory = null;
+        public String forceVersion = null;
 
         IGVArgs(String[] args) {
             if (args != null) {
@@ -411,6 +424,7 @@ public class Main {
             CmdLineParser.Option coverageFileOption = parser.addStringOption('c', "coverageFile");
             CmdLineParser.Option nameOption = parser.addStringOption('n', "name");
             CmdLineParser.Option igvDirectoryOption = parser.addStringOption("igvDirectory");
+            CmdLineParser.Option forceVersionOption = parser.addStringOption("forceVersion");
 
             try {
                 parser.parse(args);
@@ -419,20 +433,41 @@ public class Main {
             } catch (CmdLineParser.UnknownOptionException e) {
                 e.printStackTrace();
             }
-            propertyOverrides = (String) parser.getOptionValue(propertyFileOption);
-            batchFile = (String) parser.getOptionValue(batchFileOption);
+            propertyOverrides = getDecodedValue(parser, propertyFileOption);
+            batchFile = getDecodedValue(parser, batchFileOption);
             port = (String) parser.getOptionValue(portOption);
             genomeId = (String) parser.getOptionValue(genomeOption);
-            dataServerURL = (String) parser.getOptionValue(dataServerOption);
-            genomeServerURL = (String) parser.getOptionValue(genomeServerOption);
-            indexFile = (String) parser.getOptionValue(indexFileOption);
-            coverageFile = (String) parser.getOptionValue(coverageFileOption);
+            dataServerURL = getDecodedValue(parser, dataServerOption);
+            genomeServerURL = getDecodedValue(parser, genomeServerOption);
             name = (String) parser.getOptionValue(nameOption);
-            igvDirectory = (String) parser.getOptionValue(igvDirectoryOption);
+
+            String indexFilePath = (String) parser.getOptionValue(indexFileOption);
+            if (indexFilePath != null) {
+                indexFile = maybeDecodePath(indexFilePath);
+            }
+
+            String coverageFilePath = (String) parser.getOptionValue(coverageFileOption);
+            if (coverageFilePath != null) {
+                coverageFile = maybeDecodePath(coverageFilePath);
+            }
+
+
+            String igvDirectoryPath = (String) parser.getOptionValue(igvDirectoryOption);
+            if (igvDirectoryPath != null) {
+                igvDirectory = maybeDecodePath(igvDirectoryPath);
+            }
+
+            String forceVersion = (String) parser.getOptionValue(forceVersionOption);
+            if(forceVersion != null) {
+                Globals.VERSION = forceVersion;
+            }
 
             String[] nonOptionArgs = parser.getRemainingArgs();
+
             if (nonOptionArgs != null && nonOptionArgs.length > 0) {
-                String firstArg = URLDecoder.decode(nonOptionArgs[0]);
+
+                String firstArg = maybeDecodePath(nonOptionArgs[0]);
+
                 if (firstArg != null && !firstArg.equals("ignore")) {
                     log.info("Loading: " + firstArg);
                     if (firstArg.endsWith(".xml") || firstArg.endsWith(".php") || firstArg.endsWith(".php3")
@@ -446,29 +481,33 @@ public class Main {
                     locusString = nonOptionArgs[1];
                 }
 
-// Alternative implementation
-//                String firstArg = StringUtils.decodeURL(nonOptionArgs[0]);
-//                firstArg=checkEqualsAndExtractParamter(firstArg);
-//                if (firstArg != null && !firstArg.equals("ignore")) {
-//                    log.info("Loading: " + firstArg);
-//                    if (firstArg.endsWith(".xml") || firstArg.endsWith(".php") || firstArg.endsWith(".php3")
-//                            || firstArg.endsWith(".session")) {
-//                        sessionFile = firstArg;
-//
-//                    } else {
-//                        dataFileString = firstArg;
-//                    }
-//                }
-//
-//                if (nonOptionArgs.length > 1) {
-//                    // check if arg contains = for all args
-//                    for (String arg: nonOptionArgs ) {
-//                        arg = checkEqualsAndExtractParamter(arg);
-//                        if (arg != null) locusString = arg;
-//
-//                    }
-//
-//                }
+
+            }
+        }
+
+        private String maybeDecodePath(String path) {
+
+            if (FileUtils.isRemote(path)) {
+                return URLDecoder.decode(path);
+            } else {
+                if (FileUtils.resourceExists(path)) {
+                    return path;
+                } else {
+                    return URLDecoder.decode(path);
+                }
+            }
+        }
+
+        private String getDecodedValue(CmdLineParser parser, CmdLineParser.Option option) {
+
+            String value = (String) parser.getOptionValue(option);
+            if (value == null) return null;
+
+            try {
+                return URLDecoder.decode(value, "UTF-8");
+            } catch (UnsupportedEncodingException e) {
+                log.error(e);
+                return value;
             }
         }
 

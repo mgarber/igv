@@ -31,8 +31,6 @@
 package org.broad.igv.sam.reader;
 
 import htsjdk.samtools.SAMFileHeader;
-import htsjdk.samtools.SAMFileReader;
-import htsjdk.samtools.ValidationStringency;
 import htsjdk.samtools.util.CloseableIterator;
 import org.broad.igv.AbstractHeadlessTest;
 import org.broad.igv.sam.Alignment;
@@ -41,6 +39,8 @@ import org.broad.igv.util.ResourceLocator;
 import org.junit.*;
 
 import java.io.IOException;
+import java.util.List;
+import java.util.stream.Collectors;
 
 import static org.junit.Assert.*;
 
@@ -50,14 +50,13 @@ import static org.junit.Assert.*;
 
 public class BAMHttpReaderTest extends AbstractHeadlessTest {
 
-    private final String BAM_URL_STRING = "http://1000genomes.s3.amazonaws.com/phase3/data/HG01879/exome_alignment/HG01879.mapped.ILLUMINA.bwa.ACB.exome.20120522.bam";
+    private static final String BAM_URL_STRING = "http://1000genomes.s3.amazonaws.com/phase3/data/HG01879/exome_alignment/HG01879.mapped.ILLUMINA.bwa.ACB.exome.20120522.bam";
 
     BAMReader reader;
 
     @BeforeClass
     public static void setUpClass() throws Exception {
         AbstractHeadlessTest.setUpClass();
-        SAMFileReader.setDefaultValidationStringency(ValidationStringency.SILENT);
     }
 
     @AfterClass
@@ -119,6 +118,8 @@ public class BAMHttpReaderTest extends AbstractHeadlessTest {
 
         assertEquals(expected_count, counted);
     }
+
+
 
 
 }

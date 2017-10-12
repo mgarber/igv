@@ -30,24 +30,24 @@
 
 package org.broad.igv.batch;
 
-import com.google.common.collect.Iterables;
 import org.apache.log4j.Logger;
 import org.broad.igv.Globals;
-import org.broad.igv.PreferenceManager;
 import org.broad.igv.dev.api.batch.Command;
 import org.broad.igv.feature.Locus;
 import org.broad.igv.feature.RegionOfInterest;
 import org.broad.igv.feature.genome.GenomeManager;
 import org.broad.igv.ga4gh.Ga4ghAPIHelper;
 import org.broad.igv.ga4gh.OAuthUtils;
+import org.broad.igv.prefs.Constants;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.renderer.DataRange;
 import org.broad.igv.sam.AlignmentTrack;
 import org.broad.igv.track.RegionScoreType;
 import org.broad.igv.track.Track;
 import org.broad.igv.ui.IGV;
-import org.broad.igv.ui.event.DataLoadedEvent;
-import org.broad.igv.ui.event.IGVEventBus;
-import org.broad.igv.ui.event.IGVEventObserver;
+import org.broad.igv.event.DataLoadedEvent;
+import org.broad.igv.event.IGVEventBus;
+import org.broad.igv.event.IGVEventObserver;
 import org.broad.igv.ui.panel.FrameManager;
 import org.broad.igv.ui.util.MessageUtils;
 import org.broad.igv.ui.util.SnapshotUtilities;
@@ -253,7 +253,7 @@ public class CommandExecutor {
     }
 
     private String overridePreference(String prefKey, String prefVal) {
-        PreferenceManager.getInstance().override(prefKey, prefVal);
+        PreferencesManager.getPreferences().override(prefKey, prefVal);
         return "OK";
     }
 
@@ -302,7 +302,7 @@ public class CommandExecutor {
     private String setSamplingWindowSize(String windowSize) {
         try {
             Integer.parseInt(windowSize);
-            PreferenceManager.getInstance().override(PreferenceManager.SAM_SAMPLING_WINDOW, String.valueOf(windowSize));
+            PreferencesManager.getPreferences().override(Constants.SAM_SAMPLING_WINDOW, String.valueOf(windowSize));
             return "OK";
         } catch (NumberFormatException e) {
             return "ERROR: SAMPLING WINDOW IS NOT A NUMBER: " + windowSize;
@@ -313,7 +313,7 @@ public class CommandExecutor {
     private String setSamplingReadCount(String samplingReadCount) {
         try {
             Integer.parseInt(samplingReadCount);
-            PreferenceManager.getInstance().override(PreferenceManager.SAM_SAMPLING_COUNT, String.valueOf(samplingReadCount));
+            PreferencesManager.getPreferences().override(Constants.SAM_SAMPLING_COUNT, String.valueOf(samplingReadCount));
             return "OK";
         } catch (NumberFormatException e) {
             return "ERROR: SAMPLING READ COUNT IS NOT A NUMBER: " + samplingReadCount;
@@ -376,8 +376,8 @@ public class CommandExecutor {
         }
         if (ParsingUtils.pathExists(genomePath)) {
             try {
-                igv.loadGenome(genomePath, null, true);
-            } catch (IOException e) {
+                GenomeManager.getInstance().loadGenome(genomePath, null);
+            } catch (Exception e) {
                 throw new RuntimeException("Error loading genome: " + genomeID);
             }
         } else {
@@ -825,12 +825,12 @@ public class CommandExecutor {
             igv.sortAlignmentTracks(getAlignmentSortOption(sortArg), location, tag);
 
         }
-        igv.repaintDataPanels();
+        igv.revalidateTrackPanels();
     }
 
     private void group(String groupArg, String tagArg) {
         igv.groupAlignmentTracks(getAlignmentGroupOption(groupArg), tagArg, null);
-        igv.repaintDataPanels();
+        UIUtilities.invokeAndWaitOnEventThread (() -> igv.revalidateTrackPanels());
     }
 
 

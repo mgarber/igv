@@ -27,8 +27,9 @@ package org.broad.igv.feature.genome;
 
 import org.apache.log4j.Logger;
 import org.broad.igv.Globals;
-import org.broad.igv.PreferenceManager;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.ui.IGV;
+import org.broad.igv.ui.commandbar.GenomeListManager;
 import org.broad.igv.ui.util.FileDialogUtils;
 
 import javax.swing.*;
@@ -40,6 +41,8 @@ import java.awt.event.ActionListener;
 import java.io.File;
 import java.io.Serializable;
 import java.util.Collection;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * @author eflakes
@@ -132,7 +135,7 @@ public class GenomeBuilderPane extends javax.swing.JPanel implements Serializabl
 
     protected File showGenomeArchiveDirectoryChooser() {
 
-        File directory = PreferenceManager.getInstance().getLastGenomeImportDirectory();
+        File directory = PreferencesManager.getPreferences().getLastGenomeImportDirectory();
         File archiveName = new File(getGenomeId() + Globals.GENOME_FILE_EXTENSION);
         File file = FileDialogUtils.chooseFile("Save Genome File", directory, archiveName, FileDialogUtils.SAVE);
 
@@ -189,7 +192,7 @@ public class GenomeBuilderPane extends javax.swing.JPanel implements Serializabl
             return false;
         }
 
-        Collection<String> inUseIds = igv.getSelectableGenomeIDs();
+        Collection<String> inUseIds = GenomeListManager.getInstance().getSelectableGenomeIDs();
         if (inUseIds.contains(id)) {
             JOptionPane.showMessageDialog(this,
                     "The genome ID '" + id + "' is already in use - please select another!");
@@ -206,15 +209,27 @@ public class GenomeBuilderPane extends javax.swing.JPanel implements Serializabl
             return false;
         }
 
-        Collection<String> inUseDisplayNames = igv.getGenomeDisplayNames();
+        Collection<String> inUseDisplayNames = getGenomeDisplayNames();
 
         if (inUseDisplayNames.contains(displayName)) {
             JOptionPane.showMessageDialog(this,
-                    "The genome name '" + displayName + "' is already in use - please select another!");
+                    "The genome name '" + displayName + "' is already in use - please enter another!");
             return false;
         }
         return true;
     }
+
+
+    public Collection<String> getGenomeDisplayNames() {
+
+        Set<String> displayNames = new HashSet<String>();
+        Collection<GenomeListItem> listItems = GenomeListManager.getInstance().getGenomeListItems();
+        for (GenomeListItem genomeListItem : listItems) {
+            displayNames.add(genomeListItem.getDisplayableName());
+        }
+        return displayNames;
+    }
+
 
     /**
      * This method is called from within the constructor to
@@ -397,39 +412,39 @@ public class GenomeBuilderPane extends javax.swing.JPanel implements Serializabl
     }// </editor-fold>//GEN-END:initComponents
 
     private void chrAliasButtonActionPerformed(ActionEvent e) {
-        File directory = PreferenceManager.getInstance().getDefineGenomeInputDirectory();
+        File directory = PreferencesManager.getPreferences().getDefineGenomeInputDirectory();
         File file = FileDialogUtils.chooseFile("Select Chromosome Alias File", directory, FileDialogUtils.LOAD);
         if (file != null) {
             chrAliasField.setText(file.getAbsolutePath());
-            PreferenceManager.getInstance().setDefineGenomeInputDirectory(file.getParentFile());
+            PreferencesManager.getPreferences().setDefineGenomeInputDirectory(file.getParentFile());
         }
     }
 
 
     private void cytobandFileButtonActionPerformed(java.awt.event.ActionEvent evt) {
-        File directory = PreferenceManager.getInstance().getDefineGenomeInputDirectory();
+        File directory = PreferencesManager.getPreferences().getDefineGenomeInputDirectory();
         File file = FileDialogUtils.chooseFile("Select Cytoband File", directory, FileDialogUtils.LOAD);
         if (file != null) {
             cytobandFileTextField.setText(file.getAbsolutePath());
-            PreferenceManager.getInstance().setDefineGenomeInputDirectory(file.getParentFile());
+            PreferencesManager.getPreferences().setDefineGenomeInputDirectory(file.getParentFile());
         }
     }
 
     private void refFlatFileButtonActionPerformed(java.awt.event.ActionEvent evt) {
-        File directory = PreferenceManager.getInstance().getDefineGenomeInputDirectory();
+        File directory = PreferencesManager.getPreferences().getDefineGenomeInputDirectory();
         File file = FileDialogUtils.chooseFile("Select Annotation File", directory, FileDialogUtils.LOAD);
         if (file != null) {
             geneAnnotFileTextField.setText(file.getAbsolutePath());
-            PreferenceManager.getInstance().setDefineGenomeInputDirectory(file.getParentFile());
+            PreferencesManager.getPreferences().setDefineGenomeInputDirectory(file.getParentFile());
         }
     }
 
     private void fastaFileButtonActionPerformed(java.awt.event.ActionEvent evt) {
-        File directory = PreferenceManager.getInstance().getDefineGenomeInputDirectory();
+        File directory = PreferencesManager.getPreferences().getDefineGenomeInputDirectory();
         File file = FileDialogUtils.chooseFileOrDirectory("Select Fasta File", directory, null, FileDialogUtils.LOAD);
         if (file != null) {
             fastaFileTextField.setText(file.getAbsolutePath());
-            PreferenceManager.getInstance().setDefineGenomeInputDirectory(file.getParentFile());
+            PreferencesManager.getPreferences().setDefineGenomeInputDirectory(file.getParentFile());
         }
     }
 

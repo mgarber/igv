@@ -74,28 +74,30 @@ public class MessageUtils {
         log.log(level, message);
         boolean showDialog = !(Globals.isHeadless() || Globals.isSuppressMessages() || Globals.isTesting() || Globals.isBatch());
         if (showDialog) {
-            // Always use HTML for message displays, but first remove any embedded <html> tags.
-            message = "<html>" + message.replaceAll("<html>", "");
-            Frame parent = IGV.hasInstance() ? IGV.getMainFrame() : null;
-            Color background = parent != null ? parent.getBackground() : Color.lightGray;
+            UIUtilities.invokeOnEventThread (() -> {
+                // Always use HTML for message displays, but first remove any embedded <html> tags.
+                String dlgMessage = "<html>" + message.replaceAll("<html>", "");
+                Frame parent = IGV.hasInstance() ? IGV.getMainFrame() : null;
+                Color background = parent != null ? parent.getBackground() : Color.lightGray;
 
-            //JEditorPane So users can select text
-            JEditorPane content = new JEditorPane();
-            content.setContentType("text/html");
-            content.setText(message);
-            content.setBackground(background);
-            content.setEditable(false);
-            Component dispMessage = content;
+                //JEditorPane So users can select text
+                JEditorPane content = new JEditorPane();
+                content.setContentType("text/html");
+                content.setText(dlgMessage);
+                content.setBackground(background);
+                content.setEditable(false);
+                Component dispMessage = content;
 
-            //Really long messages should be scrollable
-            if(message.length() > 200){
-                Dimension size = new Dimension(1000, content.getHeight() + 100);
-                content.setPreferredSize(size);
-                JScrollPane pane = new JScrollPane(content);
-                dispMessage = pane;
-            }
+                //Really long messages should be scrollable
+                if(dlgMessage.length() > 200){
+                    Dimension size = new Dimension(1000, content.getHeight() + 100);
+                    content.setPreferredSize(size);
+                    JScrollPane pane = new JScrollPane(content);
+                    dispMessage = pane;
+                }
 
-            JOptionPane.showMessageDialog(parent, dispMessage);
+                JOptionPane.showMessageDialog(parent, dispMessage);
+            });
         }
     }
 
@@ -160,11 +162,11 @@ public class MessageUtils {
         }
     }
 
-    public static String showInputDialog(String message, final String defaultValue) {
+    public static String showInputDialog(String message, String defaultValue) {
 
         final Frame parent = IGV.hasInstance() ? IGV.getMainFrame() : null;
         //Pad message with spaces so it's as wide as the defaultValue
-        if(message.length() < defaultValue.length()){
+        if(defaultValue != null && message.length() < defaultValue.length()){
             message = String.format("%-" + defaultValue.length() + "s", message);
         }
         final String actMsg = message;
@@ -174,11 +176,9 @@ public class MessageUtils {
             return val;
         } else {
             final ValueHolder returnValue = new ValueHolder();
-            Runnable runnable = new Runnable() {
-                public void run() {
-                    String val = JOptionPane.showInputDialog(parent, actMsg, defaultValue);
-                    returnValue.value = val;
-                }
+            Runnable runnable = () -> {
+                String val = JOptionPane.showInputDialog(parent, actMsg, defaultValue);
+                returnValue.value = val;
             };
             try {
                 SwingUtilities.invokeAndWait(runnable);

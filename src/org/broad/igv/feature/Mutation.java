@@ -28,7 +28,7 @@ package org.broad.igv.feature;
 //~--- non-JDK imports --------------------------------------------------------
 
 import org.apache.log4j.Logger;
-import org.broad.igv.PreferenceManager;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.track.WindowFunction;
 import org.broad.igv.ui.IGV;
 import org.broad.igv.ui.color.ColorTable;
@@ -102,7 +102,7 @@ public class Mutation implements IGVFeature {
     public String getOMAUrl() {
         if (refAllele == null) return null;
         String genome = IGV.getInstance().getGenomeManager().getGenomeId();
-        String url = "http://mutationassessor.org/v1/?cm=var&var=" + genome + "," + getOMAName();
+        String url = "http://mutationassessor.org/r3/?cm=var&var=" + genome + "," + getOMAName();
         return url;
 
     }
@@ -219,7 +219,7 @@ public class Mutation implements IGVFeature {
     }
 
     public Color getColor() {
-        ColorTable colorTable = PreferenceManager.getInstance().getMutationColorScheme();
+        ColorTable colorTable = PreferencesManager.getPreferences().getMutationColorScheme();
         Color c = colorTable.get(getMutationType());
         return c;
     }

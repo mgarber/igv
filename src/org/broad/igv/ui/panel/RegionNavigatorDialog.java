@@ -29,12 +29,13 @@ package org.broad.igv.ui.panel;
 import org.apache.log4j.Logger;
 import org.broad.igv.feature.Range;
 import org.broad.igv.feature.RegionOfInterest;
+import org.broad.igv.feature.Strand;
 import org.broad.igv.feature.genome.GenomeManager;
 import org.broad.igv.lists.GeneList;
 import org.broad.igv.ui.IGV;
-import org.broad.igv.ui.event.IGVEventBus;
-import org.broad.igv.ui.event.IGVEventObserver;
-import org.broad.igv.ui.event.ViewChange;
+import org.broad.igv.event.IGVEventBus;
+import org.broad.igv.event.IGVEventObserver;
+import org.broad.igv.event.ViewChange;
 import org.broad.igv.util.StringUtils;
 
 import javax.swing.*;
@@ -766,7 +767,7 @@ public class RegionNavigatorDialog extends JDialog implements Observer, IGVEvent
                 }
                 GeneList geneList = new GeneList("Regions of Interest", loci, false);
                 IGV.getInstance().setGeneList(geneList);
-             //   IGV.getInstance().resetFrames();
+                IGV.getInstance().resetFrames();
 
             }
             updateButtonsEnabled();
@@ -821,7 +822,7 @@ public class RegionNavigatorDialog extends JDialog implements Observer, IGVEvent
                                 JOptionPane.showMessageDialog(RegionNavigatorDialog.this, "Region is to large to copy sequence data.");
                             } else {
                                 IGV.copySequenceToClipboard(GenomeManager.getInstance().getCurrentGenome(),
-                                        chr, start, end);
+                                        chr, start, end, Strand.NONE);
                             }
                         }
                     });

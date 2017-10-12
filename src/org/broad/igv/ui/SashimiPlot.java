@@ -25,13 +25,17 @@
 
 package org.broad.igv.ui;
 
-import org.broad.igv.PreferenceManager;
 import org.broad.igv.feature.IExon;
+import org.broad.igv.prefs.Constants;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.renderer.SashimiJunctionRenderer;
 import org.broad.igv.sam.*;
 import org.broad.igv.track.*;
 import org.broad.igv.ui.color.ColorPalette;
 import org.broad.igv.ui.color.ColorUtilities;
+import org.broad.igv.event.IGVEventBus;
+import org.broad.igv.event.IGVEventObserver;
+import org.broad.igv.event.ViewChange;
 import org.broad.igv.ui.panel.*;
 import org.broad.igv.ui.util.UIUtilities;
 
@@ -55,10 +59,13 @@ import java.util.List;
  * User: jacob
  * Date: 2013-Jan-11
  */
-public class SashimiPlot extends JFrame {
+public class SashimiPlot extends JFrame implements IGVEventObserver {
 
     private List<SpliceJunctionTrack> spliceJunctionTracks;
+
     private ReferenceFrame frame;
+
+    private IGVEventBus eventBus;
 
     /**
      * The minimum allowed origin of the frame. We set scrolling
@@ -82,10 +89,12 @@ public class SashimiPlot extends JFrame {
 
 
     public SashimiPlot(ReferenceFrame iframe, Collection<? extends AlignmentTrack> alignmentTracks, FeatureTrack geneTrack) {
-        getGlassPane().setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
-        int minJunctionCoverage = PreferenceManager.getInstance().getAsInt(PreferenceManager.SAM_JUNCTION_MIN_COVERAGE);
 
-        this.frame = new ReferenceFrame(iframe);
+        getGlassPane().setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+        int minJunctionCoverage = PreferencesManager.getPreferences().getAsInt(Constants.SAM_JUNCTION_MIN_COVERAGE);
+
+        this.eventBus = new IGVEventBus();
+        this.frame = new ReferenceFrame(iframe, eventBus);
 
         minOrigin = this.frame.getOrigin();
         maxEnd = this.frame.getEnd();
@@ -98,8 +107,10 @@ public class SashimiPlot extends JFrame {
         //Add control elements to the top
         getContentPane().add(generateControlPanel(this.frame));
 
-        spliceJunctionTracks = new ArrayList<SpliceJunctionTrack>(alignmentTracks.size());
+        spliceJunctionTracks = new ArrayList<>(alignmentTracks.size());
         int colorInd = 0;
+
+        eventBus.subscribe(ViewChange.class, this);
 
         for (AlignmentTrack alignmentTrack : alignmentTracks) {
 
@@ -119,11 +130,14 @@ public class SashimiPlot extends JFrame {
             spliceJunctionTrack.setColor(color);
 
             TrackComponent<SpliceJunctionTrack> trackComponent = new TrackComponent<SpliceJunctionTrack>(frame, spliceJunctionTrack);
+            trackComponent.originalFrame = iframe;
 
             initSpliceJunctionComponent(trackComponent, dataManager,dataManager.getCoverageTrack(), minJunctionCoverage);
 
             getContentPane().add(trackComponent);
             spliceJunctionTracks.add(spliceJunctionTrack);
+
+            spliceJunctionTrack.load(iframe);  // <= Must "load" tracks with frame of alignment track (actually just fetches from cache)
         }
 
         Axis axis = createAxis(frame);
@@ -152,10 +166,6 @@ public class SashimiPlot extends JFrame {
         });
 
         Dimension controlSize = new Dimension(200, 30);
-
-        //JSlider scaleSlider = new JSlider(JSlider.HORIZONTAL);
-        //setFixedSize(scaleSlider, controlSize);
-        //controlPanel.add(scaleSlider);
 
         controlPanel.add(zoomSliderPanel);
         setFixedSize(zoomSliderPanel, controlSize);
@@ -198,7 +208,6 @@ public class SashimiPlot extends JFrame {
 
         geneTrack.clearPackedFeatures();
         RenderContext context = new RenderContext(geneComponent, null, frame, null);
-        geneTrack.setForceLoadSync(true);
         geneTrack.load(context.getReferenceFrame());
 
 
@@ -220,7 +229,7 @@ public class SashimiPlot extends JFrame {
 
         getRenderer(trackComponent.track).setDataManager(dataManager);
         getRenderer(trackComponent.track).setCoverageTrack(coverageTrack);
-        getRenderer(trackComponent.track).getCoverageTrack().rescale(trackComponent.frame);
+        getRenderer(trackComponent.track).getCoverageTrack().rescale(trackComponent.originalFrame);
 
         dataManager.setMinJunctionCoverage(minJunctionCoverage);
 
@@ -229,6 +238,11 @@ public class SashimiPlot extends JFrame {
 
     private SashimiJunctionRenderer getRenderer(SpliceJunctionTrack spliceJunctionTrack) {
         return (SashimiJunctionRenderer) spliceJunctionTrack.getRenderer();
+    }
+
+    @Override
+    public void receiveEvent(Object event) {
+        repaint();
     }
 
     /**
@@ -240,6 +254,7 @@ public class SashimiPlot extends JFrame {
         private T track;
         private ReferenceFrame frame;
         private String toolTipText = null;
+        public ReferenceFrame originalFrame;
 
         public TrackComponent(ReferenceFrame frame, T track) {
             this.frame = frame;
@@ -307,11 +322,11 @@ public class SashimiPlot extends JFrame {
             IGVPopupMenu menu = new IGVPopupMenu();
 
             final JCheckBoxMenuItem showCoverageData = new JCheckBoxMenuItem("Show Exon Coverage Data");
-            showCoverageData.setSelected(PreferenceManager.getInstance().getAsBoolean(PreferenceManager.SASHIMI_SHOW_COVERAGE));
+            showCoverageData.setSelected(PreferencesManager.getPreferences().getAsBoolean(Constants.SASHIMI_SHOW_COVERAGE));
             showCoverageData.addActionListener(new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    PreferenceManager.getInstance().put(PreferenceManager.SASHIMI_SHOW_COVERAGE, showCoverageData.isSelected());
+                    PreferencesManager.getPreferences().put(Constants.SASHIMI_SHOW_COVERAGE, showCoverageData.isSelected());
                     SashimiPlot.this.repaint();
                 }
             });

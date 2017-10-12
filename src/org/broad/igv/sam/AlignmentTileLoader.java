@@ -29,25 +29,31 @@ import htsjdk.samtools.SAMFileHeader;
 import htsjdk.samtools.util.CloseableIterator;
 import org.apache.log4j.Logger;
 import org.broad.igv.Globals;
-import org.broad.igv.PreferenceManager;
+import org.broad.igv.prefs.IGVPreferences;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.sam.reader.AlignmentReader;
 import org.broad.igv.sam.reader.ReadGroupFilter;
 import org.broad.igv.ui.IGV;
+import org.broad.igv.event.IGVEventBus;
+import org.broad.igv.event.IGVEventObserver;
+import org.broad.igv.event.StopEvent;
 import org.broad.igv.ui.util.MessageUtils;
-import org.broad.igv.ui.util.ProgressMonitor;
 import org.broad.igv.util.ObjectCache;
 import org.broad.igv.util.RuntimeUtils;
 
+import javax.swing.*;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.*;
+
+import static org.broad.igv.prefs.Constants.*;
 
 /**
  * A wrapper for an AlignmentQueryReader that caches query results
  *
  * @author jrobinso
  */
-public class AlignmentTileLoader {
+public class AlignmentTileLoader implements IGVEventObserver {
 
     private static Logger log = Logger.getLogger(AlignmentTileLoader.class);
 
@@ -64,6 +70,7 @@ public class AlignmentTileLoader {
     private boolean tenX = false;
     private boolean phased = false;
     private boolean moleculo = false;
+    private boolean ycTags = false;
 
     static void cancelReaders() {
         for (WeakReference<AlignmentTileLoader> readerRef : activeLoaders) {
@@ -82,8 +89,6 @@ public class AlignmentTileLoader {
 
         Set<String> platforms = this.reader.getPlatforms();
         moleculo = platforms != null && platforms.contains("MOLECULO");
-
-        activeLoaders.add(new WeakReference<AlignmentTileLoader>(this));
     }
 
     public void close() throws IOException {
@@ -106,6 +111,9 @@ public class AlignmentTileLoader {
         return reader.hasIndex();
     }
 
+    public boolean hasYCTags() {
+        return ycTags;
+    }
 
     AlignmentTile loadTile(String chr,
                            int start,
@@ -114,18 +122,17 @@ public class AlignmentTileLoader {
                            AlignmentDataManager.DownsampleOptions downsampleOptions,
                            ReadStats readStats, Map<String, PEStats> peStats,
                            AlignmentTrack.BisulfiteContext bisulfiteContext,
-                           boolean showAlignments,
-                           ProgressMonitor monitor) {
+                           boolean showAlignments) {
 
-        final PreferenceManager prefMgr = PreferenceManager.getInstance();
-        boolean filterFailedReads = prefMgr.getAsBoolean(PreferenceManager.SAM_FILTER_FAILED_READS);
-        boolean filterSecondaryAlignments = prefMgr.getAsBoolean(PreferenceManager.SAM_FILTER_SECONDARY_ALIGNMENTS);
-        boolean filterSupplementaryAlignments = prefMgr.getAsBoolean(PreferenceManager.SAM_FILTER_SUPPLEMENTARY_ALIGNMENTS);
+        final IGVPreferences prefMgr = PreferencesManager.getPreferences();
+        boolean filterFailedReads = prefMgr.getAsBoolean(SAM_FILTER_FAILED_READS);
+        boolean filterSecondaryAlignments = prefMgr.getAsBoolean(SAM_FILTER_SECONDARY_ALIGNMENTS);
+        boolean filterSupplementaryAlignments = prefMgr.getAsBoolean(SAM_FILTER_SUPPLEMENTARY_ALIGNMENTS);
         ReadGroupFilter filter = ReadGroupFilter.getFilter();
-        boolean showDuplicates = prefMgr.getAsBoolean(PreferenceManager.SAM_SHOW_DUPLICATES);
-        int qualityThreshold = prefMgr.getAsInt(PreferenceManager.SAM_QUALITY_THRESHOLD);
+        boolean showDuplicates = prefMgr.getAsBoolean(SAM_SHOW_DUPLICATES) || !prefMgr.getAsBoolean(SAM_FILTER_DUPLICATES);
+        int qualityThreshold = prefMgr.getAsInt(SAM_QUALITY_THRESHOLD);
 
-        boolean reducedMemory = prefMgr.getAsBoolean(PreferenceManager.SAM_REDUCED_MEMORY_MODE);
+        boolean reducedMemory = prefMgr.getAsBoolean(SAM_REDUCED_MEMORY_MODE);
 
         AlignmentTile t = new AlignmentTile(start, end, spliceJunctionHelper, downsampleOptions, bisulfiteContext, showAlignments, reducedMemory);
 
@@ -145,21 +152,27 @@ public class AlignmentTileLoader {
             ObjectCache<String, Alignment> mappedMates = new ObjectCache<String, Alignment>(1000);
             ObjectCache<String, Alignment> unmappedMates = new ObjectCache<String, Alignment>(1000);
 
-
             activeLoaders.add(ref);
+            IGVEventBus.getInstance().subscribe(StopEvent.class, this);
+
+            if (IGV.hasInstance()) {
+                IGV.getInstance().enableStopButton(true);
+            }
+
             iter = reader.query(chr, start, end, false);
 
             while (iter != null && iter.hasNext()) {
 
                 if (cancel) {
-                    return t;
+                    break;
                 }
 
                 Alignment record = iter.next();
 
-                if(readStats != null) {
+                if (readStats != null) {
                     readStats.addAlignment(record);
-                };
+                }
+                ;
 
                 // Set mate sequence of unmapped mates
                 // Put a limit on the total size of this collection.
@@ -192,6 +205,10 @@ public class AlignmentTileLoader {
                     }
                 }
 
+                if (!ycTags && record.getAttribute("YC") != null) {
+                    ycTags = true;
+                }
+
                 // TODO -- this is not reliable tests for TenX.  Other platforms might use BX
                 if (!tenX && record.getAttribute("BX") != null) {
                     tenX = true;
@@ -214,17 +231,12 @@ public class AlignmentTileLoader {
                 alignmentCount++;
                 int interval = Globals.isTesting() ? 100000 : 1000;
                 if (alignmentCount % interval == 0) {
-                    if (cancel) return null;
                     String msg = "Reads loaded: " + alignmentCount;
                     MessageUtils.setStatusBarMessage(msg);
-                    if (monitor != null) {
-                        monitor.updateStatus(msg);
-                    }
                     if (memoryTooLow()) {
-                        if (monitor != null) monitor.fireProgressChange(100);
                         cancelReaders();
                         t.finish();
-                        return t;        // <=  TODO need to cancel all readers
+                        return t;
                     }
                 }
 
@@ -246,15 +258,15 @@ public class AlignmentTileLoader {
             // Compute peStats
             if (peStats != null) {
                 // TODO -- something smarter re the percentiles.  For small samples these will revert to min and max
-                double minPercentile = prefMgr.getAsFloat(PreferenceManager.SAM_MIN_INSERT_SIZE_PERCENTILE);
-                double maxPercentile = prefMgr.getAsFloat(PreferenceManager.SAM_MAX_INSERT_SIZE_PERCENTILE);
+                double minPercentile = prefMgr.getAsFloat(SAM_MIN_INSERT_SIZE_PERCENTILE);
+                double maxPercentile = prefMgr.getAsFloat(SAM_MAX_INSERT_SIZE_PERCENTILE);
                 for (PEStats stats : peStats.values()) {
                     stats.computeInsertSize(minPercentile, maxPercentile);
                     stats.computeExpectedOrientation();
                 }
             }
 
-            if(readStats != null) {
+            if (readStats != null) {
                 readStats.compute();
             }
 
@@ -271,6 +283,9 @@ public class AlignmentTileLoader {
             }
             t.finish();
 
+            // TODO -- make this optional (on a preference)
+            InsertionManager.getInstance().processAlignments(chr, t.alignments);
+
 
         } catch (java.nio.BufferUnderflowException e) {
             // This almost always indicates a corrupt BAM index, or less frequently a corrupt bam file
@@ -278,6 +293,9 @@ public class AlignmentTileLoader {
             MessageUtils.showMessage("<html>Error encountered querying alignments: " + e.toString() +
                     "<br>This is often caused by a corrupt index file.");
 
+        } catch (htsjdk.samtools.cram.CRAMException e) {
+            log.error("Error loading alignment data", e);
+            MessageUtils.showMessage("<html>Error - possible sequence mismatch (wrong reference for this file): " + e.toString());
         } catch (Exception e) {
             log.error("Error loading alignment data", e);
             MessageUtils.showMessage("<html>Error encountered querying alignments: " + e.toString());
@@ -285,10 +303,13 @@ public class AlignmentTileLoader {
             // reset cancel flag.  It doesn't matter how we got here,  the read is complete and this flag is reset
             // for the next time
             cancel = false;
+
             activeLoaders.remove(ref);
 
-            if (monitor != null) {
-                monitor.fireProgressChange(100);
+            IGVEventBus.getInstance().unsubscribe(this);
+
+            if (activeLoaders.isEmpty() && IGV.hasInstance()) {
+                IGV.getInstance().enableStopButton(false);
             }
 
             if (iter != null) {
@@ -344,6 +365,16 @@ public class AlignmentTileLoader {
         return moleculo;
     }
 
+    @Override
+    public void receiveEvent(Object event) {
+        if (event instanceof StopEvent) {
+            System.out.println("Canceled");
+            cancel = true;
+
+            reader.cancelQuery();
+        }
+    }
+
     /**
      * Caches alignments, coverage, splice junctions, and downsampled intervals
      */
@@ -392,7 +423,7 @@ public class AlignmentTileLoader {
             this.end = end;
             this.downsampledIntervals = new ArrayList<DownsampledInterval>();
 
-            this.indelLimit = PreferenceManager.getInstance().getAsInt(PreferenceManager.SAM_SMALL_INDEL_BP_THRESHOLD);
+            this.indelLimit = PreferencesManager.getPreferences().getAsInt(SAM_SMALL_INDEL_BP_THRESHOLD);
             this.showAlignments = showAlignments;
 
             long seed = System.currentTimeMillis();

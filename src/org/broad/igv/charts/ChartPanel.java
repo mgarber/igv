@@ -25,7 +25,7 @@
 
 package org.broad.igv.charts;
 
-import org.broad.igv.PreferenceManager;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.ui.FontManager;
 
 import javax.swing.*;
@@ -39,6 +39,8 @@ import java.awt.geom.Path2D;
 import java.io.Serializable;
 import java.util.*;
 import java.util.List;
+
+import static org.broad.igv.prefs.Constants.BACKGROUND_COLOR;
 
 /**
  * @author Jim Robinson
@@ -76,7 +78,7 @@ public class ChartPanel extends JPanel implements Serializable {
 
 
         plotPanel = new PlotPanel();
-        plotPanel.setBackground(PreferenceManager.getInstance().getAsColor(PreferenceManager.BACKGROUND_COLOR));
+        plotPanel.setBackground(PreferencesManager.getPreferences().getAsColor(BACKGROUND_COLOR));
         plotPanel.setBorder(BorderFactory.createLineBorder(Color.BLACK, 1));
         this.add(plotPanel, ChartLayout.CHART);
 
@@ -351,7 +353,7 @@ public class ChartPanel extends JPanel implements Serializable {
 //            if (scatterPlot != null) {
 //
 //                g2D.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
-//                        PreferenceManager.getInstance().getAntiAliasingHint());
+//                        IGVPreferences.getInstance().getAntiAliasingHint());
 //
 //                Color color = g.getColor();
 //                Font font = g.getFont();

@@ -39,14 +39,17 @@ package org.broad.igv.renderer;
 
 import org.apache.log4j.Logger;
 import org.broad.igv.Globals;
-import org.broad.igv.PreferenceManager;
 import org.broad.igv.feature.LocusScore;
+import org.broad.igv.prefs.IGVPreferences;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.track.RenderContext;
 import org.broad.igv.track.Track;
 import org.broad.igv.ui.FontManager;
 
 import java.awt.*;
 import java.util.List;
+
+import static org.broad.igv.prefs.Constants.CHART_DRAW_Y_AXIS;
 
 /**
  * @author jrobinso
@@ -101,13 +104,13 @@ public abstract class DataRenderer implements Renderer<LocusScore> {
      * @param rect
      */
     public void renderAxis(Track track, RenderContext context, Rectangle rect) {
-        PreferenceManager prefs = PreferenceManager.getInstance();
+        IGVPreferences prefs = PreferencesManager.getPreferences();
 
         // For now disable axes for all chromosome view
         if (context.getChr().equals(Globals.CHR_ALL)) {
             return;
         }
-        if (prefs.getAsBoolean(PreferenceManager.CHART_DRAW_Y_AXIS))  {
+        if (prefs.getAsBoolean(CHART_DRAW_Y_AXIS))  {
 
             Rectangle axisRect = new Rectangle(rect.x, rect.y + 1, AXIS_AREA_WIDTH, rect.height);
             Graphics2D whiteGraphics = context.getGraphic2DForColor(Color.white);
@@ -141,7 +144,7 @@ public abstract class DataRenderer implements Renderer<LocusScore> {
      * @param arect
      */
     public static void drawScale(DataRange range, RenderContext context, Rectangle arect){
-        if (range != null) {
+        if (range != null && context.multiframe == false) {
             Graphics2D g = context.getGraphic2DForColor(Color.black);
             Font font = g.getFont();
             Font smallFont = FontManager.getFont(8);

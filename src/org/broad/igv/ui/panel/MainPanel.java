@@ -27,7 +27,7 @@ package org.broad.igv.ui.panel;
 
 import com.jidesoft.swing.JideSplitPane;
 import org.apache.log4j.Logger;
-import org.broad.igv.PreferenceManager;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.session.Session;
 import org.broad.igv.track.AttributeManager;
 import org.broad.igv.ui.IGV;
@@ -40,6 +40,8 @@ import java.awt.event.ComponentEvent;
 import java.awt.event.ComponentListener;
 import java.util.*;
 import java.util.List;
+
+import static org.broad.igv.prefs.Constants.*;
 
 /**
  * @author jrobinso
@@ -54,7 +56,7 @@ public class MainPanel extends JPanel implements Paintable {
     // private static final int DEFAULT_NAME_PANEL_WIDTH = 160;
 
     private int namePanelX;
-    private int namePanelWidth = PreferenceManager.getInstance().getAsInt(PreferenceManager.NAME_PANEL_WIDTH);
+    private int namePanelWidth = PreferencesManager.getPreferences().getAsInt(NAME_PANEL_WIDTH);
     private int attributePanelX;
     private int attributePanelWidth;
     private int dataPanelX;
@@ -134,7 +136,7 @@ public class MainPanel extends JPanel implements Paintable {
     }
 
     public void expandNamePanel() {
-        namePanelWidth = PreferenceManager.getInstance().getAsInt(PreferenceManager.NAME_PANEL_WIDTH);
+        namePanelWidth = PreferencesManager.getPreferences().getAsInt(NAME_PANEL_WIDTH);
         revalidate();
     }
 
@@ -224,7 +226,7 @@ public class MainPanel extends JPanel implements Paintable {
         final TrackPanel dataTrackPanel = new TrackPanel(IGV.DATA_PANEL_NAME, this);
         dataTrackScrollPane.setViewportView(dataTrackPanel);
 
-        if (!PreferenceManager.getInstance().getAsBoolean(PreferenceManager.SHOW_SINGLE_TRACK_PANE_KEY)) {
+        if (!PreferencesManager.getPreferences().getAsBoolean(SHOW_SINGLE_TRACK_PANE_KEY)) {
             featureTrackScrollPane = new TrackPanelScrollPane();
             featureTrackScrollPane.setPreferredSize(new java.awt.Dimension(1021, 50));
             featureTrackScrollPane.setViewportView(new TrackPanel(IGV.FEATURE_PANEL_NAME, this));
@@ -244,13 +246,13 @@ public class MainPanel extends JPanel implements Paintable {
         centerSplitPane.setOrientation(JSplitPane.VERTICAL_SPLIT);
 
         centerSplitPane.add(dataTrackScrollPane, JSplitPane.TOP);
-        if (!PreferenceManager.getInstance().getAsBoolean(PreferenceManager.SHOW_SINGLE_TRACK_PANE_KEY)) {
+        if (!PreferencesManager.getPreferences().getAsBoolean(SHOW_SINGLE_TRACK_PANE_KEY)) {
             centerSplitPane.add(featureTrackScrollPane, JSplitPane.BOTTOM);
         }
 
         add(centerSplitPane, BorderLayout.CENTER);
 
-        setBackground(PreferenceManager.getInstance().getAsColor(PreferenceManager.BACKGROUND_COLOR));
+        setBackground(PreferencesManager.getPreferences().getAsColor(BACKGROUND_COLOR));
 
 
     }
@@ -278,31 +280,34 @@ public class MainPanel extends JPanel implements Paintable {
      */
     public synchronized TrackPanelScrollPane addDataPanel(String name) {
 
-        TrackPanel trackPanel = new TrackPanel(name, this);
+        final TrackPanel trackPanel = new TrackPanel(name, this);
         final TrackPanelScrollPane sp = new TrackPanelScrollPane();
-        sp.setViewportView(trackPanel);
-        //sp.setPreferredSize(new Dimension(700, 300));
+        Runnable runnable = () -> {
 
-        for (TrackPanel tp : getTrackPanels()) {
-            tp.getScrollPane().minimizeHeight();
-        }
+            sp.setViewportView(trackPanel);
 
-
-        // Insert the new panel just before the feature panel, or at the end if there is no feature panel.
-        int featurePaneIdx = centerSplitPane.indexOfPane(featureTrackScrollPane);
-        if (featurePaneIdx > 0) {
-            centerSplitPane.insertPane(sp, featurePaneIdx);
-        } else {
-            centerSplitPane.add(sp);
-        }
-
-        if (!PreferenceManager.getInstance().getAsBoolean(PreferenceManager.SHOW_SINGLE_TRACK_PANE_KEY)) {
-            if (sp.getTrackPanel().getTracks().size() == 0) {
-                //If the igv window is too small the divider won't exist and this causes an exception
-                //We solved by setting a minimum size
-                centerSplitPane.setDividerLocation(0, 3);
+            for (TrackPanel tp : getTrackPanels()) {
+                tp.getScrollPane().minimizeHeight();
             }
-        }
+
+            // Insert the new panel just before the feature panel, or at the end if there is no feature panel.
+            int featurePaneIdx = centerSplitPane.indexOfPane(featureTrackScrollPane);
+            if (featurePaneIdx > 0) {
+                centerSplitPane.insertPane(sp, featurePaneIdx);
+            } else {
+                centerSplitPane.add(sp);
+            }
+
+            if (!PreferencesManager.getPreferences().getAsBoolean(SHOW_SINGLE_TRACK_PANE_KEY)) {
+                if (sp.getTrackPanel().getTracks().size() == 0) {
+                    //If the igv window is too small the divider won't exist and this causes an exception
+                    //We solved by setting a minimum size
+                    centerSplitPane.setDividerLocation(0, 3);
+                }
+            }
+        };
+
+        UIUtilities.invokeAndWaitOnEventThread(runnable);
 
         return sp;
     }
@@ -448,7 +453,7 @@ public class MainPanel extends JPanel implements Paintable {
                         IGV.getInstance().getSession().getGeneListMode() :
                         Session.GeneListMode.NORMAL;
 
-                float wc =  mode == Session.GeneListMode.NORMAL ?
+                float wc = mode == Session.GeneListMode.NORMAL ?
                         ((float) dataPanelWidth - (frames.size() - 1) * gap) / frames.size() :
                         20;
 
@@ -466,7 +471,7 @@ public class MainPanel extends JPanel implements Paintable {
 
     private int calculateAttributeWidth() {
 
-        if (!PreferenceManager.getInstance().getAsBoolean(PreferenceManager.SHOW_ATTRIBUTE_VIEWS_KEY)) {
+        if (!PreferencesManager.getPreferences().getAsBoolean(SHOW_ATTRIBUTE_VIEWS_KEY)) {
             return 0;
         }
 
@@ -524,9 +529,14 @@ public class MainPanel extends JPanel implements Paintable {
 
     public void paintOffscreen(Graphics2D g, Rectangle rect) {
 
-//        g.setColor(Color.lightGray);
-//        g.fill(rect);
-
+        // A hack -- we don't want to paint the background for vector graphics output (EPS and SVG)
+        String graphicsClassName = g.getClass().getName().toLowerCase();
+        if (!(graphicsClassName.contains("epd") || graphicsClassName.contains("svg"))) {
+            Graphics2D backgroundGraphics = (Graphics2D) g.create();
+            backgroundGraphics.setColor(Color.white);
+            backgroundGraphics.fill(rect);
+            backgroundGraphics.dispose();
+        }
 
         // Header
         int width = applicationHeaderPanel.getWidth();
@@ -602,6 +612,11 @@ public class MainPanel extends JPanel implements Paintable {
 
                 TrackPanelScrollPane tsp = (TrackPanelScrollPane) c;
 
+                //Skip if panel has no tracks
+                if (tsp.getTrackPanel().getTracks().size() == 0) {
+                    continue;
+                }
+
                 int panelHeight = getOffscreenImagePanelHeight(tsp);
 
                 Rectangle tspRect = new Rectangle(tsp.getBounds());
@@ -621,6 +636,7 @@ public class MainPanel extends JPanel implements Paintable {
     }
 
     private int getOffscreenImagePanelHeight(TrackPanelScrollPane tsp) {
+
         int panelHeight;
         int maxPanelHeight = SnapshotUtilities.getMaxPanelHeight();
         final int visibleHeight = tsp.getVisibleRect().height;

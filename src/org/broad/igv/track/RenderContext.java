@@ -29,13 +29,17 @@
  */
 package org.broad.igv.track;
 
-import org.broad.igv.PreferenceManager;
+import org.broad.igv.prefs.PreferencesManager;
+import org.broad.igv.sam.InsertionMarker;
 import org.broad.igv.ui.panel.ReferenceFrame;
 
 import javax.swing.*;
 import java.awt.*;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+
+import static org.broad.igv.prefs.Constants.ENABLE_ANTIALISING;
 
 /**
  * @author jrobinso
@@ -49,6 +53,9 @@ public class RenderContext {
     private JComponent panel;
     private Rectangle visibleRect;
     private boolean merged = false;
+    public transient int translateX;
+    private List<InsertionMarker> insertionMarkers;
+    public boolean multiframe = false;
 
 
     public RenderContext(JComponent panel, Graphics2D graphics, ReferenceFrame referenceFrame, Rectangle visibleRect) {
@@ -57,7 +64,19 @@ public class RenderContext {
         this.graphicCache = new HashMap();
         this.referenceFrame = referenceFrame;
         this.visibleRect = visibleRect;
-        if (PreferenceManager.getInstance().getAsBoolean(PreferenceManager.ENABLE_ANTIALISING) && graphics != null) {
+        if (PreferencesManager.getPreferences().getAsBoolean(ENABLE_ANTIALISING) && graphics != null) {
+            graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            graphics.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        }
+    }
+
+    public RenderContext(RenderContext context) {
+        this.graphics = context.getGraphics();
+        this.graphicCache = new HashMap<>();
+        this.referenceFrame = new ReferenceFrame(context.referenceFrame);
+        this.panel = context.panel;
+        this.visibleRect = new Rectangle(context.visibleRect);
+        if (PreferencesManager.getPreferences().getAsBoolean(ENABLE_ANTIALISING) && graphics != null) {
             graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             graphics.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
         }
@@ -67,12 +86,16 @@ public class RenderContext {
         return graphics;
     }
 
+    public void clearGraphicsCache() {
+        graphicCache.clear();
+    }
+
     public Graphics2D getGraphics2D(Object key) {
 
         Graphics2D g = graphicCache.get(key);
         if (g == null) {
             g = (Graphics2D) graphics.create();
-            if (PreferenceManager.getInstance().getAsBoolean(PreferenceManager.ENABLE_ANTIALISING)) {
+            if (PreferencesManager.getPreferences().getAsBoolean(ENABLE_ANTIALISING)) {
                 g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
             }
@@ -126,11 +149,12 @@ public class RenderContext {
         return referenceFrame;
     }
 
-    public int bpToScreenPixel(double location) {
-        final double scale = getScale();
-        final double origin = getOrigin();
-        return (int) ((location - origin) / scale);
+    public boolean isMerged() {
+        return merged;
+    }
 
+    public void setMerged(boolean merged) {
+        this.merged = merged;
     }
 
     /**
@@ -145,18 +169,19 @@ public class RenderContext {
     }
 
     public void dispose() {
+        // Note: don't dispose of "this.graphics", its used later to paint the border
         for (Graphics2D g : graphicCache.values()) {
             g.dispose();
         }
         graphicCache.clear();
     }
 
-    public boolean isMerged() {
-        return merged;
+
+    public void setInsertionMarkers(List<InsertionMarker> insertionMarkers) {
+        this.insertionMarkers = insertionMarkers;
     }
 
-    public void setMerged(boolean merged) {
-        this.merged = merged;
+    public List<InsertionMarker> getInsertionMarkers() {
+        return insertionMarkers;
     }
-
 }

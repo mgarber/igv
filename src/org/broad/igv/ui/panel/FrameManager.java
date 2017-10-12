@@ -25,17 +25,20 @@
 
 package org.broad.igv.ui.panel;
 
-import org.broad.igv.PreferenceManager;
 import org.broad.igv.feature.Locus;
+import org.broad.igv.feature.genome.Genome;
 import org.broad.igv.lists.GeneList;
+import org.broad.igv.prefs.Constants;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.track.RegionScoreType;
 import org.broad.igv.track.Track;
 import org.broad.igv.ui.IGV;
 import org.broad.igv.ui.action.SearchCommand;
-import org.broad.igv.ui.event.IGVEventBus;
+import org.broad.igv.event.GenomeChangeEvent;
+import org.broad.igv.event.IGVEventBus;
+import org.broad.igv.event.IGVEventObserver;
 import org.broad.igv.ui.util.MessageUtils;
 
-import java.awt.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -45,7 +48,7 @@ import java.util.List;
  * @author jrobinso
  * @date Sep 10, 2010
  */
-public class FrameManager {
+public class FrameManager implements IGVEventObserver {
 
     private static List<ReferenceFrame> frames = new ArrayList();
     private static ReferenceFrame defaultFrame;
@@ -67,9 +70,9 @@ public class FrameManager {
         return frames;
     }
 
-    public static ReferenceFrame getFrame(String frameName){
-        for(ReferenceFrame frame: frames){
-            if(frame.getName().equals(frameName)){
+    public static ReferenceFrame getFrame(String frameName) {
+        for (ReferenceFrame frame : frames) {
+            if (frame.getName().equals(frameName)) {
                 return frame;
             }
         }
@@ -85,18 +88,6 @@ public class FrameManager {
         return frames.size() > 1;
     }
 
-    public static int getStateHash() {
-        if(isGeneListMode()) {
-            String hs = "";
-            for(ReferenceFrame frame : frames) {
-                hs = hs + frame.getStateHash();
-            }
-            return hs.hashCode();
-        }
-        else {
-            return defaultFrame.getStateHash();
-        }
-    }
 
     public static void setToDefaultFrame(String searchString) {
         frames.clear();
@@ -112,7 +103,7 @@ public class FrameManager {
         IGVEventBus.getInstance().post(new ChangeEvent(frames));
     }
 
-    private static boolean addNewFrame(String searchString){
+    private static boolean addNewFrame(String searchString) {
         boolean locusAdded = false;
         Locus locus = getLocus(searchString);
         if (locus != null) {
@@ -142,7 +133,7 @@ public class FrameManager {
                 }
             } else {
                 for (String searchString : gl.getLoci()) {
-                    if(!addNewFrame(searchString)){
+                    if (!addNewFrame(searchString)) {
                         lociNotFound.add(searchString);
                     }
                 }
@@ -164,7 +155,7 @@ public class FrameManager {
 
     /**
      * @return The minimum scale among all active frames
-     *         TODO -- track this with "rescale" events, rather than compute on the fly
+     * TODO -- track this with "rescale" events, rather than compute on the fly
      */
     public static double getMinimumScale() {
         double minScale = Double.MAX_VALUE;
@@ -178,11 +169,12 @@ public class FrameManager {
     /**
      * Uses default flanking region with
      * {@link #getLocus(String, int)}
+     *
      * @param searchString
      * @return
      */
     public static Locus getLocus(String searchString) {
-        int flankingRegion = PreferenceManager.getInstance().getAsInt(PreferenceManager.FLANKING_REGION);
+        int flankingRegion = PreferencesManager.getPreferences().getAsInt(Constants.FLANKING_REGION);
         return getLocus(searchString, flankingRegion);
     }
 
@@ -256,19 +248,28 @@ public class FrameManager {
      */
     public static void incrementZoom(int zoom) {
 
-        if(isGeneListMode()) {
-            for(ReferenceFrame frame : getFrames()) {
+        if (isGeneListMode()) {
+            for (ReferenceFrame frame : getFrames()) {
                 frame.doZoomIncrement(zoom);
             }
-        }
-        else {
+        } else {
             getDefaultFrame().doZoomIncrement(zoom);
+        }
+    }
+
+    @Override
+    public void receiveEvent(Object event) {
+        if (event instanceof GenomeChangeEvent) {
+            Genome newGenome = ((GenomeChangeEvent) event).genome;
+            boolean force = true;
+            getDefaultFrame().setChromosomeName(newGenome.getHomeChromosome(), force);
         }
     }
 
 
     public static class ChangeEvent {
         List<ReferenceFrame> frames;
+
         public ChangeEvent(List<ReferenceFrame> frames) {
             this.frames = frames;
         }

@@ -35,7 +35,8 @@ package org.broad.igv.ui.panel;
 
 
 import org.apache.log4j.Logger;
-import org.broad.igv.PreferenceManager;
+import org.broad.igv.prefs.Constants;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.track.Track;
 import org.broad.igv.track.TrackClickEvent;
 import org.broad.igv.track.TrackGroup;
@@ -55,7 +56,9 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
 
 /**
@@ -92,7 +95,7 @@ public class TrackNamePanel extends TrackPanelComponent implements Paintable {
 
         super.paintComponent(g);
 
-        if (PreferenceManager.getInstance().getAsBoolean(PreferenceManager.ENABLE_ANTIALISING)) {
+        if (PreferencesManager.getPreferences().getAsBoolean(Constants.ENABLE_ANTIALISING)) {
             ((Graphics2D) g).setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
         }
 
@@ -175,6 +178,8 @@ public class TrackNamePanel extends TrackPanelComponent implements Paintable {
                 }
 
             }
+            graphics2D.dispose();
+            greyGraphics.dispose();
         }
     }
 
@@ -197,7 +202,7 @@ public class TrackNamePanel extends TrackPanelComponent implements Paintable {
 
 
         List<Track> tmp = new ArrayList(group.getVisibleTracks());
-        final Color backgroundColor = PreferenceManager.getInstance().getAsColor(PreferenceManager.BACKGROUND_COLOR);
+        final Color backgroundColor = PreferencesManager.getPreferences().getAsColor(Constants.BACKGROUND_COLOR);
         graphics2D.setBackground(backgroundColor);
         graphics2D.clearRect(visibleRect.x, visibleRect.y, visibleRect.width, visibleRect.height);
 
@@ -224,7 +229,9 @@ public class TrackNamePanel extends TrackPanelComponent implements Paintable {
                         } else {
                             graphics2D.setBackground(backgroundColor);
                         }
-                        track.renderName(graphics2D, rect, visibleRect);
+                        Graphics2D trackGraphics = (Graphics2D) graphics2D.create();
+                        track.renderName(trackGraphics, rect, visibleRect);
+                        trackGraphics.dispose();
                     }
 
                 }
@@ -545,37 +552,20 @@ public class TrackNamePanel extends TrackPanelComponent implements Paintable {
 
 
         /**
-         * Mouse was clicked.  Delegate single-click action to the track(s) clicked on.   We won't know if this
-         * is a double click or not until the double-click interval has passed, so defer the action with a
-         * TimerTask.  If a second click arrives it will be canceled.
+         * Mouse was clicked.  Delegateaction to the track(s) clicked on. .
          *
          * @param e
          */
         @Override
         public void mouseClicked(final MouseEvent e) {
-
-            // If this is the second click of a double click, cancel the scheduled single click task.
-            if (e.getClickCount() > 1) {
-                clickScheduler.cancelClickTask();
-                return;
-            }
-
-            TimerTask clickTask = new TimerTask() {
-
-                @Override
-                public void run() {
-                    for (MouseableRegion mouseRegion : mouseRegions) {
-                        if (mouseRegion.containsPoint(e.getX(), e.getY())) {
-                            for (Track t : mouseRegion.getTracks()) {
-                                t.handleNameClick(e);
-                            }
-                            return;
-                        }
-                    }//To change body of implemented methods use File | Settings | File Templates.
+            for (MouseableRegion mouseRegion : mouseRegions) {
+                if (mouseRegion.containsPoint(e.getX(), e.getY())) {
+                    for (Track t : mouseRegion.getTracks()) {
+                        t.handleNameClick(e);
+                        return;
+                    }
                 }
-            };
-            //clickScheduler.scheduleClickTask(clickTask);
-            clickTask.run();
+            }
         }
 
         protected void fireGhostDropEvent(GhostDropEvent evt) {

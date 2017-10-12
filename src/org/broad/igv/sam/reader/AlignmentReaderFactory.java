@@ -26,8 +26,8 @@
 package org.broad.igv.sam.reader;
 
 import htsjdk.samtools.SAMFileHeader;
-import htsjdk.samtools.SAMFileReader;
 import htsjdk.samtools.SAMReadGroupRecord;
+import htsjdk.samtools.SamReaderFactory;
 import htsjdk.samtools.ValidationStringency;
 import org.apache.log4j.Logger;
 import org.broad.igv.exceptions.DataLoadException;
@@ -49,7 +49,7 @@ public class AlignmentReaderFactory {
     private static Logger log = Logger.getLogger(AlignmentReaderFactory.class);
 
     static {
-        SAMFileReader.setDefaultValidationStringency(ValidationStringency.SILENT);
+        SamReaderFactory.setDefaultValidationStringency(ValidationStringency.SILENT);
     }
 
     public static AlignmentReader getReader(String path, boolean requireIndex) throws IOException {
@@ -85,8 +85,8 @@ public class AlignmentReaderFactory {
             reader = new GeraldReader(samFile, requireIndex);
         } else if (typeString.endsWith(".bam") || (typeString.endsWith(".cram"))) {
             try {
-                reader = new BAMReader(locator, requireIndex);
-            } catch (IOException e) {
+                reader = new BAMReader(locator, requireIndex); //, requireIndex);
+            } catch (Exception e) {
                 log.error(e.getMessage(), e);
                 throw new DataLoadException("Error loading BAM file: " + e.toString(), locator.getPath());
             }

@@ -34,9 +34,9 @@ package org.broad.igv.ui.panel;
 //~--- non-JDK imports --------------------------------------------------------
 
 import org.apache.log4j.Logger;
-import org.broad.igv.feature.FeatureUtils;
-import org.broad.igv.feature.LocusScore;
-import org.broad.igv.renderer.DataRange;
+import org.broad.igv.sam.AlignmentTrack;
+import org.broad.igv.sam.InsertionManager;
+import org.broad.igv.sam.InsertionMarker;
 import org.broad.igv.track.*;
 import org.broad.igv.ui.IGV;
 import org.broad.igv.ui.UIConstants;
@@ -56,48 +56,90 @@ public class DataPanelPainter {
                                    Color background,
                                    Rectangle visibleRect) {
 
-        Graphics2D graphics2D = null;
 
-        try {
-            graphics2D = (Graphics2D) context.getGraphics().create();
-            graphics2D.setBackground(background);
-            graphics2D.clearRect(visibleRect.x, visibleRect.y, visibleRect.width, visibleRect.height);
-            graphics2D.setColor(Color.BLACK);
+        //
 
+        Graphics2D graphics2D = context.getGraphics2D("BACKGROUND");
+        graphics2D.setBackground(background);
+        graphics2D.clearRect(visibleRect.x, visibleRect.y, visibleRect.width, visibleRect.height);
+        graphics2D.setColor(Color.BLACK);
+
+
+        final ReferenceFrame referenceFrame = context.getReferenceFrame();
+        context.setInsertionMarkers(InsertionManager.getInstance().getInsertions(referenceFrame.getChrName(), referenceFrame.getOrigin(), referenceFrame.getEnd()));
+
+        InsertionMarker i = InsertionManager.getInstance().getSelectedInsertion(referenceFrame.getChrName());
+
+
+        if (i != null) {
+            final double start = referenceFrame.getOrigin();
+            try {
+                double scale = referenceFrame.getScale();
+                int p0 = 0, w;
+
+                w = (int) ((i.position - start) / scale);
+                paintSection(groups, context, p0, visibleRect.y, w, visibleRect.height, 0);
+
+                i.pixelPosition = p0 + w;
+                p0 += w;
+
+                context.multiframe = true;
+                referenceFrame.origin = i.position;
+                w = (int) Math.ceil(i.size / context.getScale());
+                paintExpandedInsertion(i, groups, context, p0, visibleRect.y, w, visibleRect.height);
+
+                int g = (int) (i.size / scale);
+                p0 += g;
+                context.getReferenceFrame().origin = i.position;
+                w = width - p0;
+                if (w > 0) {
+                    paintSection(groups, context, p0, visibleRect.y, width - p0, visibleRect.height, g);
+                }
+            } finally {
+                referenceFrame.origin = start;
+            }
+        } else {
             paintFrame(groups, context, width, visibleRect);
-
-
-        } finally {
-            if(graphics2D != null) graphics2D.dispose();
         }
+
     }
 
-    private void paintFrame(Collection<TrackGroup> groups,
-                            RenderContext context,
-                            int width,
-                            Rectangle visibleRect) {
+
+    private void paintSection(Collection<TrackGroup> groups, RenderContext context, int px, int py, int w, int h, int delta) {
+
+        context.clearGraphicsCache();
+        Graphics2D dG = context.getGraphics();
+        Rectangle dRect = new Rectangle(0, py, w, h);
+        dG.translate(delta, 0);
+        dG.setClip(dRect);
+        context.translateX = px;
+
+        paintFrame(groups, context, w, dRect);
+
+    }
 
 
+    private void paintFrame(Collection<TrackGroup> groups, RenderContext dContext, int width, Rectangle dRect) {
         int trackX = 0;
         int trackY = 0;
 
         for (Iterator<TrackGroup> groupIter = groups.iterator(); groupIter.hasNext(); ) {
             TrackGroup group = groupIter.next();
 
-            if (visibleRect != null && (trackY > visibleRect.y + visibleRect.height)) {
+            if (dRect != null && (trackY > dRect.y + dRect.height)) {
                 break;
             }
 
             if (group.isVisible()) {
                 if (groups.size() > 1) {
-                    final Graphics2D greyGraphics = context.getGraphic2DForColor(UIConstants.LIGHT_GREY);
+                    final Graphics2D greyGraphics = dContext.getGraphic2DForColor(UIConstants.LIGHT_GREY);
                     greyGraphics.fillRect(0, trackY + 1, width, UIConstants.groupGap - 1);
                     trackY += UIConstants.groupGap;
                 }
 
                 // Draw a line just above group.
                 if (group.isDrawBorder()) {
-                    Graphics2D graphics2D = context.getGraphic2DForColor(Color.black);
+                    Graphics2D graphics2D = dContext.getGraphic2DForColor(Color.black);
                     graphics2D.drawLine(0, trackY - 1, width, trackY - 1);
                 }
 
@@ -106,10 +148,10 @@ public class DataPanelPainter {
                     for (Track track : trackList) {
                         if (track == null) continue;
                         int trackHeight = track.getHeight();
-                        if (visibleRect != null) {
-                            if (trackY > visibleRect.y + visibleRect.height) {
+                        if (dRect != null) {
+                            if (trackY > dRect.y + dRect.height) {
                                 break;
-                            } else if (trackY + trackHeight < visibleRect.y) {
+                            } else if (trackY + trackHeight < dRect.y) {
                                 if (track.isVisible()) {
                                     trackY += trackHeight;
                                 }
@@ -120,7 +162,7 @@ public class DataPanelPainter {
 
                         if (track.isVisible()) {
                             Rectangle rect = new Rectangle(trackX, trackY, width, trackHeight);
-                            draw(track, rect, context);
+                            draw(track, rect, dContext);
                             trackY += trackHeight;
                         }
                     }
@@ -128,8 +170,54 @@ public class DataPanelPainter {
 
                 // Draw a line just below group.
                 if (group.isDrawBorder()) {
-                    Graphics2D graphics2D = context.getGraphic2DForColor(Color.black);
+                    Graphics2D graphics2D = dContext.getGraphic2DForColor(Color.black);
                     graphics2D.drawLine(0, trackY, width, trackY);
+                }
+            }
+        }
+    }
+
+
+    private void paintExpandedInsertion(InsertionMarker insertionMarker, Collection<TrackGroup> groups, RenderContext context, int px, int py, int w, int h) {
+
+        context.clearGraphicsCache();
+        Graphics2D dG = context.getGraphics();
+        Rectangle dRect = new Rectangle(0, py, w, h);
+        dG.translate(px, 0);
+        dG.setClip(dRect);
+        context.translateX = px;
+
+        int trackY = 0;
+
+        for (Iterator<TrackGroup> groupIter = groups.iterator(); groupIter.hasNext(); ) {
+            TrackGroup group = groupIter.next();
+            if (group.isVisible()) {
+                List<Track> trackList = group.getVisibleTracks();
+                synchronized (trackList) {
+
+                    for (Track track : trackList) {
+                        if (track == null) continue;
+                        int trackHeight = track.getHeight();
+                        if (dRect != null) {
+                            if (trackY > dRect.y + dRect.height) {
+                                break;
+                            } else if (trackY + trackHeight < dRect.y) {
+                                if (track.isVisible()) {
+                                    trackY += trackHeight;
+                                }
+                                continue;
+                            }
+                        }
+
+                        if (track instanceof AlignmentTrack && track.isVisible()) {
+                            Rectangle rect = new Rectangle(dRect.x, trackY, dRect.width, trackHeight);
+                            ((AlignmentTrack) track).renderExpandedInsertion(insertionMarker, context, rect);
+                        }
+
+                        if (track.isVisible()) {
+                            trackY += trackHeight;
+                        }
+                    }
                 }
             }
         }
@@ -154,22 +242,6 @@ public class DataPanelPainter {
         }
 
     }
-
-    private List<Track> getVisibleTracks(final Collection<TrackGroup> groups) {
-        // Find the tracks that need loaded, we go to this bother to avoid loading tracks scrolled out of view
-        final List<Track> visibleTracks = new ArrayList<Track>();
-        for (Iterator<TrackGroup> groupIter = groups.iterator(); groupIter.hasNext(); ) {
-            TrackGroup group = groupIter.next();
-            List<Track> trackList = new ArrayList(group.getVisibleTracks());
-            for (Track track : trackList) {
-                if (track != null && track.isVisible()) {
-                    visibleTracks.add(track);
-                }
-            }
-        }
-        return visibleTracks;
-    }
-
 
 
 }

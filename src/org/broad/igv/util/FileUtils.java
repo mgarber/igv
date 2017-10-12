@@ -25,6 +25,7 @@
 
 package org.broad.igv.util;
 
+import org.apache.commons.io.output.StringBuilderWriter;
 import org.broad.igv.util.ftp.FTPUtils;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.log4j.Logger;
@@ -465,5 +466,53 @@ public class FileUtils {
                 return -1;
             }
         }
+    }
+
+    /**
+     * Read and return the file contents as a string
+     * @param path
+     * @return
+     */
+    public static String getContents(String path) throws IOException {
+
+        BufferedReader reader = ParsingUtils.openBufferedReader(path);
+
+        StringBuilder contents = new StringBuilder();
+        PrintWriter pw = new PrintWriter(new StringBuilderWriter(contents));
+        String nextLine;
+        while((nextLine = reader.readLine()) != null) {
+            pw.println(nextLine);
+        }
+        return contents.toString();
+
+    }
+
+    public static byte[] readFully(String aInputFileName) {
+        File file = new File(aInputFileName);
+        byte[] result = new byte[(int) file.length()];
+        try {
+            InputStream input = null;
+            try {
+                int totalBytesRead = 0;
+                input = new BufferedInputStream(new FileInputStream(file));
+                while (totalBytesRead < result.length) {
+                    int bytesRemaining = result.length - totalBytesRead;
+                    //input.read() returns -1, 0, or more :
+                    int bytesRead = input.read(result, totalBytesRead, bytesRemaining);
+                    if (bytesRead > 0) {
+                        totalBytesRead = totalBytesRead + bytesRead;
+                    }
+                }
+
+            } finally {
+
+                input.close();
+            }
+        } catch (FileNotFoundException ex) {
+
+        } catch (IOException ex) {
+
+        }
+        return result;
     }
 }

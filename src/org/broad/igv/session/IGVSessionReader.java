@@ -30,6 +30,9 @@ import org.broad.igv.Globals;
 import org.broad.igv.feature.Locus;
 import org.broad.igv.feature.RegionOfInterest;
 import org.broad.igv.feature.genome.Genome;
+import org.broad.igv.feature.genome.GenomeListItem;
+import org.broad.igv.sam.AlignmentTrack;
+import org.broad.igv.ui.commandbar.GenomeListManager;
 import org.broad.igv.feature.genome.GenomeManager;
 import org.broad.igv.lists.GeneList;
 import org.broad.igv.lists.GeneListManager;
@@ -60,7 +63,6 @@ import javax.xml.bind.JAXBElement;
 import javax.xml.bind.JAXBException;
 import javax.xml.bind.Unmarshaller;
 import java.awt.*;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.ref.WeakReference;
@@ -383,6 +385,7 @@ public class IGVSessionReader implements SessionReader {
         }
 
         if (genomeId != null && genomeId.length() > 0) {
+
             if (genomeId.equals(GenomeManager.getInstance().getGenomeId())) {
                 // We don't have to reload the genome, but the gene track for the current genome should be restored.
                 if (hasGeneTrack || hasSeqTrack) {
@@ -391,26 +394,33 @@ public class IGVSessionReader implements SessionReader {
                     IGV.getInstance().setGenomeTracks(geneTrack);
                 }
             } else {
+
                 // Selecting a genome will actually "reset" the session so we have to
                 // save the path and restore it.
                 String sessionPath = session.getPath();
-                //Loads genome from list, or from server or cache
-                igv.selectGenomeFromList(genomeId);
-                if (!genomeId.equals(GenomeManager.getInstance().getGenomeId())) {
-                    String genomePath = genomeId;
-                    if (!ParsingUtils.pathExists(genomePath)) {
-                        genomePath = getAbsolutePath(genomeId, rootPath, session.getPath());
-                    }
-                    if (ParsingUtils.pathExists(genomePath)) {
-                        try {
-                            IGV.getInstance().loadGenome(genomePath, null, hasGeneTrack);
-                        } catch (IOException e) {
-                            throw new RuntimeException("Error loading genome: " + genomeId);
-                        }
+
+                try {
+                    GenomeListItem item = GenomeListManager.getInstance().getGenomeListItem(genomeId);
+                    if (item != null) {
+                        GenomeManager.getInstance().loadGenome(item.getPath(), null);
                     } else {
-                        MessageUtils.showMessage("Warning: Could not locate genome: " + genomeId);
+                        String genomePath = genomeId;
+                        if (!ParsingUtils.pathExists(genomePath)) {
+                            genomePath = getAbsolutePath(genomeId, rootPath);
+                        }
+                        if (ParsingUtils.pathExists(genomePath)) {
+                            GenomeManager.getInstance().loadGenome(genomePath, null);
+
+                        } else {
+                            MessageUtils.showMessage("Warning: Could not locate genome: " + genomeId);
+                        }
                     }
+                } catch (IOException e) {
+                    MessageUtils.showErrorMessage("Error loading genome: " + genomeId, e);
+                    log.error("Error loading genome: " + genomeId, e);
                 }
+
+
                 session.setPath(sessionPath);
             }
         }
@@ -449,7 +459,7 @@ public class IGVSessionReader implements SessionReader {
         session.setGroupTracksBy(getAttribute(element, SessionAttribute.GROUP_TRACKS_BY.getText()));
 
         String nextAutoscaleGroup = getAttribute(element, SessionAttribute.NEXT_AUTOSCALE_GROUP.getText());
-        if(nextAutoscaleGroup != null) {
+        if (nextAutoscaleGroup != null) {
             try {
                 session.setNextAutoscaleGroup(Integer.parseInt(nextAutoscaleGroup));
             } catch (NumberFormatException e) {
@@ -637,7 +647,7 @@ public class IGVSessionReader implements SessionReader {
                             }
                         } catch (Exception e) {
                             log.error("Error loading resource " + locator.getPath(), e);
-                            String ms = "<b>" + locator.getPath() + "</b><br>&nbs;p&nbsp;" + e.toString() + "<br>";
+                            String ms = "<b>" + locator.getPath() + "</b><br>&nbsp;&nbsp;" + e.toString() + "<br>";
                             errors.add(ms);
                         }
                     }
@@ -735,7 +745,7 @@ public class IGVSessionReader implements SessionReader {
         }
 
         String absolutePath = "ga4gh".equals(type) ? path :
-                getAbsolutePath(path, rootPath, alternateRootPath);
+                getAbsolutePath(path, rootPath);
 
         fullToRelPathMap.put(absolutePath, path);
 
@@ -744,12 +754,12 @@ public class IGVSessionReader implements SessionReader {
         if (index != null) resourceLocator.setIndexPath(index);
 
         if (coverage != null) {
-            String absoluteCoveragePath = coverage.equals(".") ? coverage : getAbsolutePath(coverage, rootPath, alternateRootPath);
+            String absoluteCoveragePath = coverage.equals(".") ? coverage : getAbsolutePath(coverage, rootPath);
             resourceLocator.setCoverage(absoluteCoveragePath);
         }
 
         if (mapping != null) {
-            String absoluteMappingPath = mapping.equals(".") ? mapping : getAbsolutePath(mapping, rootPath, alternateRootPath);
+            String absoluteMappingPath = mapping.equals(".") ? mapping : getAbsolutePath(mapping, rootPath);
             resourceLocator.setMappingPath(absoluteMappingPath);
         }
 
@@ -800,14 +810,9 @@ public class IGVSessionReader implements SessionReader {
 
     }
 
-    private String getAbsolutePath(String path, String rootPath, String alternateRootPath) {
+    private String getAbsolutePath(String path, String rootPath) {
 
         String absolutePath = FileUtils.getAbsolutePath(path, rootPath);
-
-        // Session file might have been moved, try to correct if the path is a local file (not an http or ftp url)
-        if (alternateRootPath != null && !FileUtils.isRemote(absolutePath) && !(new File(absolutePath).exists())) {
-            absolutePath = FileUtils.getAbsolutePath(path, alternateRootPath);
-        }
 
         return absolutePath;
     }
@@ -1080,7 +1085,7 @@ public class IGVSessionReader implements SessionReader {
 
         if (matchedTracks == null) {
             //Try creating an "absolute" path for the id
-            matchedTracks = allTracks.get(getAbsolutePath(id, rootPath, alternateRootPath));
+            matchedTracks = allTracks.get(getAbsolutePath(id, rootPath));
         }
 
         if (matchedTracks == null) {
@@ -1341,6 +1346,7 @@ public class IGVSessionReader implements SessionReader {
             AbstractTrack.knownUnknownTrackClasses.add(unmarshalClass);
             return unmarshalTrack(u, node, firstClass, unmarshalClass.getSuperclass());
         }
+
         return (AbstractTrack) el.getValue();
     }
 

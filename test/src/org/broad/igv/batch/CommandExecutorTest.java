@@ -27,15 +27,15 @@ package org.broad.igv.batch;
 
 import org.apache.commons.lang.StringUtils;
 import org.broad.igv.Globals;
-import org.broad.igv.PreferenceManager;
+import org.broad.igv.prefs.Constants;
 import org.broad.igv.dev.api.batch.Command;
 import org.broad.igv.feature.RegionOfInterest;
 import org.broad.igv.feature.genome.GenomeManager;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.track.RegionScoreType;
 import org.broad.igv.track.Track;
 import org.broad.igv.ui.AbstractHeadedTest;
 import org.broad.igv.ui.IGV;
-import org.broad.igv.ui.IGVTestHeadless;
 import org.broad.igv.ui.panel.FrameManager;
 import org.broad.igv.ui.panel.ReferenceFrame;
 import org.broad.igv.util.ResourceLocator;
@@ -55,6 +55,7 @@ import java.util.*;
 import java.util.List;
 
 import static junit.framework.Assert.*;
+import static org.junit.Assert.assertTrue;
 
 /**
  * User: jacob
@@ -68,11 +69,46 @@ public class CommandExecutorTest extends AbstractHeadedTest {
     @Rule
     public TestRule testTimeout = new Timeout((int) 1800000);
 
+    public static int checkIsSorted(List<Track> tracks, RegionOfInterest roi, RegionScoreType type, int zoom, ReferenceFrame frame) {
+
+        String chr = roi.getChr();
+        int start = roi.getStart();
+        int end = roi.getEnd();
+        String frameName = frame != null ? frame.getName() : null;
+
+        Track lastTrack = null;
+        int count = 0;
+        for (int ii = 0; ii < tracks.size(); ii++) {
+            Track track = tracks.get(ii);
+            if (track.isRegionScoreType(type)) {
+                String name = track.getName().toLowerCase();
+                if (name.contains("reference")
+                        || name.contains("refseq")) {
+                    continue;
+                }
+                count++;
+                if (lastTrack == null) {
+                    lastTrack = track;
+                    continue;
+                }
+
+                // Test sort order -- by default tracks should be sorted in descending value
+                float s2 = track.getRegionScore(chr, start, end, zoom, type, frameName);
+                float s1 = lastTrack.getRegionScore(chr, start, end, zoom, type, frameName);
+                assertTrue("Track named " + track.getName() + ", " + s2 + " and " + lastTrack.getName() + ", " + s1 + " out of order type " + type, s2 <= s1);
+
+                lastTrack = track;
+            }
+        }
+
+        return count;
+    }
+
     @Before
     public void setUp() throws Exception {
         super.setUp();
         Globals.setBatch(true);
-        igv.loadGenome(TestUtils.defaultGenome, null, true);
+        GenomeManager.getInstance().loadGenome(TestUtils.defaultGenome, null);
         igv.newSession();
         exec.setSnapshotDirectory(snapshotDir);
     }
@@ -108,7 +144,7 @@ public class CommandExecutorTest extends AbstractHeadedTest {
     @Test
     @Ignore
     public void stressTestSnapshotsHG00171() throws Exception {
-        PreferenceManager.getInstance().put(PreferenceManager.SAM_MAX_VISIBLE_RANGE, "1000");
+        PreferencesManager.getPreferences().put(Constants.SAM_MAX_VISIBLE_RANGE, "1000");
 
         String interv0 = "chr1:151666000-152666000";
         String interv1 = "chr1:154666000-155666000";
@@ -122,9 +158,9 @@ public class CommandExecutorTest extends AbstractHeadedTest {
     @Test
     @Ignore
     public void stressTestSnapshotsBodymap() throws Exception {
-        PreferenceManager.getInstance().put(PreferenceManager.SAM_DOWNSAMPLE_READS, "true");
-        PreferenceManager.getInstance().put(PreferenceManager.SAM_SAMPLING_COUNT, "100");
-        PreferenceManager.getInstance().put(PreferenceManager.SAM_MAX_VISIBLE_RANGE, "1000");
+        PreferencesManager.getPreferences().put(Constants.SAM_DOWNSAMPLE_READS, "true");
+        PreferencesManager.getPreferences().put(Constants.SAM_SAMPLING_COUNT, "100");
+        PreferencesManager.getPreferences().put(Constants.SAM_MAX_VISIBLE_RANGE, "1000");
 
         String interv0 = "chr12:97,509,534-97,521,909"; //SLC25A3
         String interv1 = "chrX:153,366,844-153,374,196"; //SLC10A3
@@ -188,7 +224,7 @@ public class CommandExecutorTest extends AbstractHeadedTest {
     private void setCheckMaxDepth(int maxDepth) {
         String res = exec.execute("maxDepth " + maxDepth);
         assertFalse(res.contains("ERROR"));
-        int newMaxDepth = PreferenceManager.getInstance().getAsInt(PreferenceManager.SAM_SAMPLING_COUNT);
+        int newMaxDepth = PreferencesManager.getPreferences().getAsInt(Constants.SAM_SAMPLING_COUNT);
         assertEquals(maxDepth, newMaxDepth);
 
     }
@@ -215,7 +251,7 @@ public class CommandExecutorTest extends AbstractHeadedTest {
 
                 tracks = igv.getAllTracks();
                 ReferenceFrame frame = FrameManager.getDefaultFrame();
-                IGVTestHeadless.checkIsSorted(tracks, roi, type, frame.getZoom(), frame);
+                checkIsSorted(tracks, roi, type, frame.getZoom(), frame);
                 count++;
             }
         }
@@ -466,14 +502,14 @@ public class CommandExecutorTest extends AbstractHeadedTest {
 
     @Test
     public void testPreference() throws Exception {
-        String key = PreferenceManager.DATA_SERVER_URL_KEY;
+        String key = Constants.DATA_SERVER_URL_KEY;
         String val = "myDataServerURL";
 
-        assertNotSame(val, PreferenceManager.getInstance().getDataServerURL());
+        assertNotSame(val, PreferencesManager.getPreferences().getDataServerURL());
 
         exec.execute(String.format("preference %s %s", key, val));
 
-        assertEquals(val, PreferenceManager.getInstance().getDataServerURL());
+        assertEquals(val, PreferencesManager.getPreferences().getDataServerURL());
     }
 
     @Test

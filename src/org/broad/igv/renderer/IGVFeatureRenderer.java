@@ -27,19 +27,17 @@ package org.broad.igv.renderer;
 
 
 import org.apache.log4j.Logger;
-import org.broad.igv.PreferenceManager;
 import org.broad.igv.feature.*;
 import org.broad.igv.feature.genome.Genome;
 import org.broad.igv.feature.genome.GenomeManager;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.track.FeatureTrack;
 import org.broad.igv.track.RenderContext;
 import org.broad.igv.track.Track;
 import org.broad.igv.track.TrackType;
 import org.broad.igv.ui.FontManager;
 import org.broad.igv.ui.color.ColorUtilities;
-import org.broad.igv.ui.panel.FrameManager;
 import org.broad.igv.util.collections.MultiMap;
-import org.broad.igv.variant.VariantRenderer;
 
 import java.awt.*;
 import java.awt.font.LineMetrics;
@@ -150,8 +148,14 @@ public class IGVFeatureRenderer extends FeatureRenderer {
                 // virtual pixel value can be too large for an int, so the computation is
                 // done in double precision and cast to an int only when its confirmed its
                 // within the field of view.
+
+                // Insertions have zero width (end == start), but we want to draw them with a minimum of
+                // 1/4 bp width
+
+                double effectiveEnd = Math.max(feature.getStart() + 0.25, feature.getEnd());
+
                 double virtualPixelStart = (feature.getStart() - origin) / locScale;
-                double virtualPixelEnd = (feature.getEnd() - origin) / locScale;
+                double virtualPixelEnd = (effectiveEnd - origin) / locScale;
 
                 int pixelStart = (int) Math.round(Math.max(trackRectangleX, virtualPixelStart));
                 int pixelEnd = (int) Math.round(Math.min(trackRectangleMaxX, virtualPixelEnd));
@@ -404,7 +408,7 @@ public class IGVFeatureRenderer extends FeatureRenderer {
             }
 
             if (exprValue != null) {
-                ContinuousColorScale colorScale = PreferenceManager.getInstance().getColorScale(TrackType.GENE_EXPRESSION);
+                ContinuousColorScale colorScale = PreferencesManager.getPreferences().getColorScale(TrackType.GENE_EXPRESSION);
                 Color chartColor = colorScale.getColor(exprValue);
                 g2D = context.getGraphic2DForColor(chartColor);
             }
@@ -626,7 +630,7 @@ public class IGVFeatureRenderer extends FeatureRenderer {
         if ((aaSequence != null) && aaSequence.hasNonNullSequence()) {
             Rectangle aaRect = new Rectangle(pStart, yOffset - blockHeight / 2, 1, blockHeight);
 
-            int aaSeqStartPosition = aaSequence.getStartPosition();
+            int aaSeqStartPosition = aaSequence.getStart();
             boolean odd =  exon.getAminoAcidNumber(exon.getCdStart()) % 2 == 1;
 
             for (AminoAcid acid : aaSequence.getSequence()) {

@@ -27,10 +27,13 @@ package org.broad.igv.track;
 
 //~--- non-JDK imports --------------------------------------------------------
 
+import htsjdk.tribble.Feature;
 import org.apache.log4j.Logger;
 import org.broad.igv.Globals;
-import org.broad.igv.PreferenceManager;
+import org.broad.igv.event.IGVEventBus;
+import org.broad.igv.event.IGVEventObserver;
 import org.broad.igv.gwas.GWASTrack;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.renderer.*;
 import org.broad.igv.sam.AlignmentTrack;
 import org.broad.igv.sam.CoverageTrack;
@@ -48,7 +51,6 @@ import org.broad.igv.ui.panel.ReferenceFrame;
 import org.broad.igv.ui.util.UIUtilities;
 import org.broad.igv.util.ResourceLocator;
 import org.broad.igv.util.Utilities;
-import htsjdk.tribble.Feature;
 import org.w3c.dom.Node;
 
 import javax.xml.bind.JAXBException;
@@ -59,12 +61,14 @@ import java.awt.event.MouseEvent;
 import java.util.*;
 import java.util.List;
 
+import static org.broad.igv.prefs.Constants.*;
+
 /**
  * @author jrobinso
  */
 @XmlType(factoryClass = IGVSessionReader.class, factoryMethod = "getNextTrack")
 @XmlAccessorType(XmlAccessType.NONE)
-@XmlSeeAlso({CoverageTrack.class, AlignmentTrack.class, DataSourceTrack.class, GWASTrack.class, FeatureTrack.class, MergedTracks.class})
+@XmlSeeAlso({CNFreqTrack.class, CoverageTrack.class, AlignmentTrack.class, DataSourceTrack.class, GWASTrack.class, FeatureTrack.class, MergedTracks.class})
 public abstract class AbstractTrack implements Track {
 
     private static Logger log = Logger.getLogger(AbstractTrack.class);
@@ -109,7 +113,7 @@ public abstract class AbstractTrack implements Track {
 
 
     @XmlAttribute
-    protected int fontSize = PreferenceManager.getInstance().getAsInt(PreferenceManager.DEFAULT_FONT_SIZE);
+    protected int fontSize = PreferencesManager.getPreferences().getAsInt(DEFAULT_FONT_SIZE);
     private boolean showDataRange = true;
     private String sampleId;
 
@@ -198,8 +202,8 @@ public abstract class AbstractTrack implements Track {
     }
 
     private void init() {
-        showDataRange = PreferenceManager.getInstance().getAsBoolean(PreferenceManager.CHART_SHOW_DATA_RANGE);
-        if (PreferenceManager.getInstance().getAsBoolean(PreferenceManager.EXPAND_FEAUTRE_TRACKS)) {
+        showDataRange = PreferencesManager.getPreferences().getAsBoolean(CHART_SHOW_DATA_RANGE);
+        if (PreferencesManager.getPreferences().getAsBoolean(EXPAND_FEAUTRE_TRACKS)) {
             displayMode = DisplayMode.EXPANDED;
         }
     }
@@ -248,11 +252,6 @@ public abstract class AbstractTrack implements Track {
 
     public void setSampleId(String sampleId) {
         this.sampleId = sampleId;
-    }
-
-    @Override
-    public void load(ReferenceFrame referenceFrame) {
-        // No-op, to be overriden by subclasses
     }
 
     @Override
@@ -426,9 +425,9 @@ public abstract class AbstractTrack implements Track {
      */
     private int getDefaultHeight() {
         if (XYPlotRenderer.class.isAssignableFrom(getDefaultRendererClass())) {
-            return PreferenceManager.getInstance().getAsInt(PreferenceManager.CHART_TRACK_HEIGHT_KEY);
+            return PreferencesManager.getPreferences().getAsInt(CHART_TRACK_HEIGHT_KEY);
         } else {
-            return PreferenceManager.getInstance().getAsInt(PreferenceManager.TRACK_HEIGHT_KEY);
+            return PreferencesManager.getPreferences().getAsInt(TRACK_HEIGHT_KEY);
         }
     }
 
@@ -490,7 +489,7 @@ public abstract class AbstractTrack implements Track {
                 if (overlaid) {
                     return false;
                 } else {
-                    return PreferenceManager.getInstance().getAsBoolean(PreferenceManager.SHOW_ORPHANED_MUTATIONS);
+                    return PreferencesManager.getPreferences().getAsBoolean(SHOW_ORPHANED_MUTATIONS);
                 }
             }
         }
@@ -967,7 +966,15 @@ public abstract class AbstractTrack implements Track {
 
 
     public String getNameValueString(int y) {
-        return getName();
+
+        StringBuffer buffer = new StringBuffer();
+        buffer.append("<html>" + getName());
+
+        if(resourceLocator != null && resourceLocator.getPath() != null) {
+            buffer.append("<br>" + this.resourceLocator.getPath());
+        }
+
+        return buffer.toString();
     }
 
     /**
@@ -1038,8 +1045,9 @@ public abstract class AbstractTrack implements Track {
 
     @Override
     public void dispose() {
-        // Default is to do nothing.  Override in subclasses
-
+        if(this instanceof IGVEventObserver) {
+            IGVEventBus.getInstance().unsubscribe((IGVEventObserver) this);
+        }
     }
 
 

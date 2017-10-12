@@ -27,14 +27,13 @@ package org.broad.igv.util;
 
 import com.google.common.base.Function;
 import com.google.common.base.Supplier;
-import htsjdk.samtools.util.ftp.FTPClient;
 import org.broad.igv.DirectoryManager;
 import org.broad.igv.Globals;
-import org.broad.igv.PreferenceManager;
 import org.broad.igv.feature.NamedFeature;
 import org.broad.igv.feature.genome.Genome;
-import org.broad.igv.feature.genome.GenomeListItem;
+import org.broad.igv.ui.commandbar.GenomeListManager;
 import org.broad.igv.feature.genome.GenomeManager;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.tools.IgvTools;
 import org.broad.igv.track.Track;
 import org.broad.igv.ui.IGV;
@@ -73,7 +72,7 @@ import static org.junit.Assert.assertFalse;
 public class TestUtils {
     public static final String DATA_DIR = "test/data/";
     public static final String TMP_OUTPUT_DIR = DATA_DIR + "out/";
-    public static final String defaultGenome = DATA_DIR + "/genomes/hg18.unittest.genome";
+    public static final String defaultGenome = DATA_DIR + "genomes/hg18.unittest.genome";
 
     //This is so ant can set the large data directory
     private static String LARGE_DATA_DIR_KEY = "LARGE_DATA_DIR";
@@ -90,7 +89,6 @@ public class TestUtils {
         resetTestUserDefinedGenomes();
         Globals.READ_TIMEOUT = 60 * 1000;
         Globals.CONNECT_TIMEOUT = 60 * 1000;
-        FTPClient.READ_TIMEOUT = 60 * 1000;
 
         //Create output directory if it doesn't exist
         File outDir = new File(TestUtils.TMP_OUTPUT_DIR);
@@ -104,7 +102,7 @@ public class TestUtils {
         File prefsFile = new File("testprefs.properties");
         prefsFile.delete();
         prefsFile.deleteOnExit();
-        PreferenceManager.getInstance().setPrefsFile(prefsFile.getAbsolutePath());
+        PreferencesManager.setPrefsFile(prefsFile.getAbsolutePath());
     }
 
     /**
@@ -552,8 +550,7 @@ public class TestUtils {
         userDefinedGenomeListFile.delete();
         userDefinedGenomeListFile.deleteOnExit();
 
-        Collection<GenomeListItem> userDefined = GenomeManager.getInstance().getUserDefinedGenomeArchiveList();
-        userDefined.clear();
-        GenomeManager.getInstance().buildGenomeItemList();
+        GenomeListManager.getInstance().clearUserDefinedGenomes();
+        GenomeListManager.getInstance().rebuildGenomeItemMap();
     }
 }

@@ -30,7 +30,7 @@
 package org.broad.igv.feature.genome;
 
 import org.apache.log4j.Logger;
-import org.broad.igv.feature.Range;
+import org.broad.igv.ui.panel.ReferenceFrame;
 import org.broad.igv.util.ObjectCache;
 
 import java.util.Hashtable;
@@ -41,7 +41,7 @@ import java.util.List;
  *
  * @author jrobinso
  */
-public class SequenceWrapper implements Sequence {
+public class SequenceWrapper implements Sequence  {
 
     private static Logger log = Logger.getLogger(SequenceWrapper.class);
     private static boolean cacheSequences = true;
@@ -50,10 +50,10 @@ public class SequenceWrapper implements Sequence {
     private Sequence sequence;
     private ObjectCache<String, SequenceTile> sequenceCache = new ObjectCache<String, SequenceTile>(50);
 
-
     public SequenceWrapper(Sequence sequence) {
         this.sequence = sequence;
     }
+
 
     public byte getBase(String chr, int position) {
         if (cacheSequences) {
@@ -87,17 +87,43 @@ public class SequenceWrapper implements Sequence {
         return sequence.getChromosomeLength(chrname);
     }
 
+    @Override
+    public boolean isLoaded(ReferenceFrame frame) {
+        if (!cacheSequences) return false;
+
+        int startTile = (int) frame.getOrigin() / tileSize;
+        int endTile = (int) frame.getEnd() / tileSize;
+        String chr = frame.getChrName();
+        for (int i = startTile; i <= endTile; i++) {
+            String key = getKey(chr, i);
+            if (!sequenceCache.containsKey(key)) return false;
+
+        }
+        return true;
+    }
+
+    @Override
+    public boolean isRemote() {
+        return sequence.isRemote();
+    }
+
+    @Override
+    public boolean isFasta() {
+        return sequence.isFasta();
+    }
+
     /**
      * Return the reference dna sequence for the exact interval specified.
      *
      * @param chr
      * @param start
      * @param end
+     * @param useCache
      * @return
      */
-    public byte[] getSequence(String chr, int start, int end) {
+    public byte[] getSequence(String chr, int start, int end, boolean useCache) {
 
-        if (cacheSequences) {
+        if (cacheSequences && useCache) {
             byte[] seqbytes = new byte[end - start];
 
             int startTile = start / tileSize;
@@ -144,7 +170,7 @@ public class SequenceWrapper implements Sequence {
 
             return seqbytes;
         } else {
-            return sequence.getSequence(chr, start, end);
+            return sequence.getSequence(chr, start, end, useCache);
         }
     }
 
@@ -161,7 +187,7 @@ public class SequenceWrapper implements Sequence {
                 return null;
             }
 
-            byte[] seq = sequence.getSequence(chr, start, end);
+            byte[] seq = sequence.getSequence(chr, start, end, true);
             tile = new SequenceTile(start, seq);
             sequenceCache.put(key, tile);
         }
@@ -182,15 +208,14 @@ public class SequenceWrapper implements Sequence {
 
             if (tile == null) {
 
-                if(toLoad == null) {
+                if (toLoad == null) {
                     toLoad = new TileRange(tileNo, tileNo);
-                }
-                else {
+                } else {
                     toLoad.endTile = tileNo;
                 }
 
             } else {  // tile != null
-                tiles[tileNo-startTile] = tile;
+                tiles[tileNo - startTile] = tile;
 
                 if (toLoad != null) {
                     loadTiles(chr, startTile, tiles, toLoad);
@@ -210,20 +235,28 @@ public class SequenceWrapper implements Sequence {
     private void loadTiles(String chr, int startTile, SequenceTile[] tiles, TileRange toLoad) {
         int start = toLoad.startTile * tileSize;
         int end = (toLoad.endTile + 1) * tileSize;
-        byte[] seq = sequence.getSequence(chr, start, end);
+        byte[] seq = sequence.getSequence(chr, start, end, true);
 
         int offset = 0;
-        for(int t = toLoad.startTile; t <= toLoad.endTile; t++) {
+        for (int t = toLoad.startTile; t <= toLoad.endTile; t++) {
 
             int nBytes = Math.min(tileSize, seq.length - offset);
-            byte [] tileSeq = new byte[nBytes];
+            byte[] tileSeq = new byte[nBytes];
             int tileStart = t * tileSize;
             System.arraycopy(seq, offset, tileSeq, 0, nBytes);
             SequenceTile t2 = new SequenceTile(tileStart, tileSeq);
             String k = getKey(chr, t);
             sequenceCache.put(k, t2);
-            tiles[t-startTile] = t2;
+            tiles[t - startTile] = t2;
             offset += tileSize;
+        }
+    }
+
+
+    void setTileSize(int aChunkSize) {
+        if(aChunkSize != tileSize) {
+            tileSize = aChunkSize;
+            if (cacheSequences) clearCache();
         }
     }
 
@@ -249,15 +282,6 @@ public class SequenceWrapper implements Sequence {
      */
     static String getKey(String chr, int tileNo) {
         return chr + "/" + tileNo;
-    }
-
-    /**
-     * This accessor provided to support unit tests.
-     *
-     * @param aChunkSize
-     */
-    static void setTileSize(int aChunkSize) {
-        tileSize = aChunkSize;
     }
 
     /**
@@ -359,6 +383,8 @@ public class SequenceWrapper implements Sequence {
         return convertedURL;
 
     }
+
+
 
 
 }

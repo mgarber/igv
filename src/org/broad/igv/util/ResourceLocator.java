@@ -69,8 +69,7 @@ public class ResourceLocator {
     String indexPath;
 
     /**
-     *
-     /**
+     * /**
      * Path to an associated density file.  This is used primarily for sequence alignments
      */
     String coverage;
@@ -273,11 +272,10 @@ public class ResourceLocator {
     public String getTrackName() {
         if (name == null) {
             if (path.startsWith("http://") || path.startsWith("https://")) {
-                try {
-                    return new File((new URL(URLDecoder.decode(path))).getPath()).getName();
-                } catch (MalformedURLException e) {
-                    return path;
-                }
+                int idx = path.lastIndexOf('/');
+                int idx2 = path.indexOf('?');
+                return idx2 > idx ? path.substring(idx + 1, idx2) : path.substring(idx + 1);
+
             } else {
                 return new File(path).getName();
             }

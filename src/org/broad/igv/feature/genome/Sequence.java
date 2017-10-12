@@ -25,9 +25,9 @@
 
 package org.broad.igv.feature.genome;
 
-import java.util.Collection;
+import org.broad.igv.ui.panel.ReferenceFrame;
+
 import java.util.List;
-import java.util.Set;
 
 /**
  * @author jrobinso
@@ -37,12 +37,19 @@ import java.util.Set;
  */
 public interface Sequence {
 
-    byte[] getSequence(String chr, int start, int end);
+    byte[] getSequence(String chr, int start, int end, boolean useCache);
 
     public byte getBase(String chr, int position);
 
     List<String> getChromosomeNames();
 
     int getChromosomeLength(String chrname);
+
+    default boolean isLoaded(ReferenceFrame frame) {
+        return false;
+    }
+
+    boolean isRemote();
+
+    default boolean isFasta() {return false;}
 }
-                                                                    

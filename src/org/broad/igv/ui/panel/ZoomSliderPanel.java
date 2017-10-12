@@ -33,8 +33,6 @@
  */
 package org.broad.igv.ui.panel;
 
-import org.broad.igv.PreferenceManager;
-import org.broad.igv.ui.event.ViewChange;
 import org.broad.igv.ui.util.IconFactory;
 
 import javax.swing.*;
@@ -85,6 +83,7 @@ public class ZoomSliderPanel extends JPanel {
      * @param referenceFrame The ReferenceFrame whose zoom level this panel will control
      */
     public ZoomSliderPanel(ReferenceFrame referenceFrame) {
+
         this.referenceFrame = referenceFrame;
         slider = IconFactory.getInstance().getIcon(IconFactory.IconID.SLIDER).getImage();
         zoomPlus = IconFactory.getInstance().getIcon(IconFactory.IconID.ZOOM_PLUS).getImage();
@@ -97,7 +96,7 @@ public class ZoomSliderPanel extends JPanel {
     }
 
     private void updateTickCount() {
-        int tmp = getViewContext().getMaxZoom() + 1;
+        int tmp = getReferenceFrame().getMaxZoom() + 1;
         if (tmp != numZoomLevels) {
             numZoomLevels = tmp;
             zoomLevelRects = new Rectangle[numZoomLevels];
@@ -170,9 +169,9 @@ public class ZoomSliderPanel extends JPanel {
             transGraphics.fill(zoomPlusRect);
         }
 
-        // Draw current level -- zoomIndex is the zoom level + 1. 
+        // Draw current level -- zoomIndex is the zoom level + 1.
 
-        int zoom = (toolZoom >= 0 ? toolZoom : getViewContext().getAdjustedZoom());
+        int zoom = (toolZoom >= 0 ? toolZoom : getReferenceFrame().getAdjustedZoom());
 
         if (enabled) {
             if (zoom >= 0 && zoom < zoomLevelRects.length) {
@@ -213,7 +212,7 @@ public class ZoomSliderPanel extends JPanel {
     }
 
 
-    private ReferenceFrame getViewContext() {
+    private ReferenceFrame getReferenceFrame() {
         if(referenceFrame == null) return FrameManager.getDefaultFrame();
         return referenceFrame;
     }
@@ -245,7 +244,7 @@ public class ZoomSliderPanel extends JPanel {
                 if (!isEnabled()) {
                     return;
                 }
-                toolZoom = Math.max(0, getViewContext().getAdjustedZoom());
+                toolZoom = Math.max(0, getReferenceFrame().getAdjustedZoom());
             }
 
             @Override
@@ -263,8 +262,8 @@ public class ZoomSliderPanel extends JPanel {
 
                 repaint();
 
-                int effectiveZoom = toolZoom + getViewContext().getMinZoom();
-                FrameManager.getDefaultFrame().changeZoom(effectiveZoom);
+                int effectiveZoom = toolZoom + getReferenceFrame().getMinZoom();
+                getReferenceFrame().changeZoom(effectiveZoom);
                 toolZoom = -1;
 
             }

@@ -34,6 +34,7 @@ import com.google.common.collect.Table;
 import com.google.common.collect.TreeBasedTable;
 import com.google.gson.*;
 import org.apache.log4j.Logger;
+import org.broad.igv.track.SequenceTrack;
 import org.broad.igv.util.ParsingUtils;
 
 import java.io.BufferedReader;
@@ -174,73 +175,57 @@ public class AminoAcidManager {
      * @param sequence
      * @return
      */
+
     List<AminoAcid> getAminoAcids(Strand direction, String sequence) {
 
         // Sequence must be divisible by 3. It is the responsibility of the
         // calling program to send a sequence properly aligned.
-        int l = sequence.length();
-        int rem = l % 3;
-        int readLength = l / 3;
+        int readLength = sequence.length() / 3;
         List<AminoAcid> acids = new ArrayList<AminoAcid>(readLength);
 
-        int start = direction == Strand.POSITIVE ? 0 : rem;
+        if(direction == Strand.NEGATIVE) {
+            sequence = SequenceTrack.getReverseComplement(sequence);
+        }
 
-        for (int i = start; i <= sequence.length() - 3; i += 3) {
+        for (int i = 0; i <= sequence.length() - 3; i += 3) {
             String codon = sequence.substring(i, i + 3).toUpperCase();
-            if (direction == Strand.NEGATIVE) {
-                codon = getNucleotideComplement(codon);
-            }
             AminoAcid aa = currentCodonTable.getAminoAcid(codon);
             acids.add(aa);
         }
+
+        if(direction == Strand.NEGATIVE) {
+            Collections.reverse(acids);
+        }
+
         return acids;
     }
 
     /**
      * Get the amino acid sequence for an interval.
      * Assumptions and conventions
-     * <p/>
+     *
      * The start and end positions are on the positive strand
      * irrespective of the read direction.
-     * <p/>
+     *
      * Reading will begin from the startPosition if strand == POSITIVE, endPosition if NEGATIVE
      *
-     * @param strand
-     * @param startPosition
-     * @param seqBytes
      * @return AminoAcidSequence, or null if seqBytes == null
      */
-    public synchronized AminoAcidSequence getAminoAcidSequence(Strand strand, int startPosition, byte[] seqBytes) {
-        if (seqBytes == null) {
+    public AminoAcidSequence getAminoAcidSequence(Strand strand, int start, String nucSequence) {
+        if (nucSequence == null) {
             return null;
         } else {
 
-            int l = seqBytes.length;
+            int l = nucSequence.length();
             int rem = l % 3;
-            int aaStart = strand == Strand.POSITIVE ? 0 : rem;
+            int aaStart = strand == Strand.POSITIVE ? 0 : 0 + rem;
 
-            String nucSequence = new String(seqBytes);
             List<AminoAcid> acids = getAminoAcids(strand, nucSequence);
-            return new AminoAcidSequence(strand, startPosition + aaStart, acids, currentCodonTable.getKey());
+
+            return new AminoAcidSequence(strand, start + aaStart, acids, currentCodonTable.getKey());
         }
     }
 
-    /**
-     * Return a list of amino acids for the input nucleotides
-     *
-     * @param strand
-     * @param startPosition
-     * @param nucleotides
-     * @return
-     */
-    public synchronized AminoAcidSequence getAminoAcidSequence(Strand strand, int startPosition, String nucleotides) {
-        if (nucleotides == null) {
-            return null;
-        } else {
-            List<AminoAcid> acids = getAminoAcids(strand, nucleotides);
-            return new AminoAcidSequence(strand, startPosition, acids, currentCodonTable.getKey());
-        }
-    }
 
     /**
      * Given the 'name' of an amino acid, find a match. Lookups
@@ -262,36 +247,6 @@ public class AminoAcidManager {
         }
 
         return aa;
-    }
-
-    public static String getNucleotideComplement(String sequence) {
-        char[] complement = new char[sequence.length()];
-        int jj = complement.length;
-        for (int ii = 0; ii < sequence.length(); ii++) {
-            char c = sequence.charAt(ii);
-            jj--;
-            switch (c) {
-                case 'T':
-                case 't':
-                    complement[jj] = 'A';
-                    break;
-                case 'A':
-                case 'a':
-                    complement[jj] = 'T';
-                    break;
-                case 'C':
-                case 'c':
-                    complement[jj] = 'G';
-                    break;
-                case 'G':
-                case 'g':
-                    complement[jj] = 'C';
-                    break;
-                default:
-                    complement[jj] = c;
-            }
-        }
-        return new String(complement);
     }
 
     public Set<String> getMappingSNPs(String codon, AminoAcid mutAA) {

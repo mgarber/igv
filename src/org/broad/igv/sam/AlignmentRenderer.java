@@ -27,14 +27,15 @@ package org.broad.igv.sam;
 
 import org.apache.log4j.Logger;
 import org.broad.igv.Globals;
-import org.broad.igv.PreferenceManager;
 import org.broad.igv.feature.Strand;
 import org.broad.igv.feature.genome.Genome;
 import org.broad.igv.feature.genome.GenomeManager;
+import org.broad.igv.prefs.IGVPreferences;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.renderer.ContinuousColorScale;
 import org.broad.igv.renderer.GraphicUtils;
+import org.broad.igv.renderer.SequenceRenderer;
 import org.broad.igv.sam.AlignmentTrack.ColorOption;
-import org.broad.igv.sam.AlignmentTrack.RenderOptions;
 import org.broad.igv.sam.AlignmentTrack.ShadeBasesOption;
 import org.broad.igv.sam.BisulfiteBaseInfo.DisplayStatus;
 import org.broad.igv.track.RenderContext;
@@ -44,13 +45,16 @@ import org.broad.igv.util.ChromosomeColors;
 
 import java.awt.*;
 import java.awt.geom.Rectangle2D;
-import java.util.*;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+
+import static org.broad.igv.prefs.Constants.*;
 
 /**
  * @author jrobinso
  */
-public class AlignmentRenderer implements FeatureRenderer {
+public class AlignmentRenderer {
 
     private static Logger log = Logger.getLogger(AlignmentRenderer.class);
 
@@ -64,14 +68,14 @@ public class AlignmentRenderer implements FeatureRenderer {
     private static final Color RR_COLOR = new Color(20, 50, 200);
     private static final Color LL_COLOR = new Color(0, 150, 150);
     private static Color smallISizeColor = new Color(0, 0, 150);
-    private static Color largeISizeColor = new Color(150, 0, 0);
+    private static Color largeISizeColor = new Color(200, 0, 0);
     private static final Color OUTLINE_COLOR = new Color(185, 185, 185);
 
     // Clipping colors
     private static Color clippedColor = new Color(255, 20, 147);
 
     // Indel colors
-    private static Color purple = new Color(118, 24, 220);
+    public static Color purple = new Color(118, 24, 220);
     private static Color deletionColor = Color.black;
     private static Color skippedColor = new Color(150, 184, 200);
     private static Color unknownGapColor = new Color(0, 150, 0);
@@ -103,15 +107,15 @@ public class AlignmentRenderer implements FeatureRenderer {
 
     private static void setNucleotideColors() {
 
-        PreferenceManager prefs = PreferenceManager.getInstance();
+        IGVPreferences prefs = PreferencesManager.getPreferences();
 
         nucleotideColors = new HashMap();
 
-        Color a = ColorUtilities.stringToColor(prefs.get(PreferenceManager.SAM_COLOR_A), Color.green);
-        Color c = ColorUtilities.stringToColor(prefs.get(PreferenceManager.SAM_COLOR_C), Color.blue);
-        Color t = ColorUtilities.stringToColor(prefs.get(PreferenceManager.SAM_COLOR_T), Color.red);
-        Color g = ColorUtilities.stringToColor(prefs.get(PreferenceManager.SAM_COLOR_G), Color.gray);
-        Color n = ColorUtilities.stringToColor(prefs.get(PreferenceManager.SAM_COLOR_N), Color.gray);
+        Color a = ColorUtilities.stringToColor(prefs.get(SAM_COLOR_A), Color.green);
+        Color c = ColorUtilities.stringToColor(prefs.get(SAM_COLOR_C), Color.blue);
+        Color t = ColorUtilities.stringToColor(prefs.get(SAM_COLOR_T), Color.red);
+        Color g = ColorUtilities.stringToColor(prefs.get(SAM_COLOR_G), Color.gray);
+        Color n = ColorUtilities.stringToColor(prefs.get(SAM_COLOR_N), Color.gray);
 
         nucleotideColors.put('A', a);
         nucleotideColors.put('a', a);
@@ -123,6 +127,7 @@ public class AlignmentRenderer implements FeatureRenderer {
         nucleotideColors.put('g', g);
         nucleotideColors.put('N', n);
         nucleotideColors.put('n', n);
+        nucleotideColors.put('-', Color.lightGray);
 
     }
 
@@ -232,11 +237,9 @@ public class AlignmentRenderer implements FeatureRenderer {
     }
 
 
-    PreferenceManager prefs;
     AlignmentTrack track;
 
     public AlignmentRenderer(AlignmentTrack track) {
-        this.prefs = PreferenceManager.getInstance();
         this.track = track;
     }
 
@@ -263,10 +266,12 @@ public class AlignmentRenderer implements FeatureRenderer {
 
         g = context.getGraphics2D("OUTLINE");
 
-        g = (Graphics2D) context.getGraphics2D("INDEL_LABEL");
+        g = context.getGraphics2D("INDEL_LABEL");
 
         g = context.getGraphics2D("BASE");
 
+        g = context.getGraphics2D("STRAND");
+        g.setColor(Color.DARK_GRAY);
     }
 
     /**
@@ -276,15 +281,16 @@ public class AlignmentRenderer implements FeatureRenderer {
                                  RenderContext context,
                                  Rectangle rowRect,
                                  Rectangle trackRect,
-                                 RenderOptions renderOptions,
+                                 AlignmentTrack.RenderOptions renderOptions,
                                  boolean leaveMargin,
                                  Map<String, Color> selectedReadNames,
-                                 AlignmentCounts alignmentCounts) {
+                                 AlignmentCounts alignmentCounts,
+                                 IGVPreferences prefs) {
 
         initializeGraphics(context);
         double origin = context.getOrigin();
         double locScale = context.getScale();
-        boolean completeReadsOnly = PreferenceManager.getInstance().getAsBoolean(PreferenceManager.SAM_COMPLETE_READS_ONLY);
+        boolean completeReadsOnly = prefs.getAsBoolean(SAM_COMPLETE_READS_ONLY);
 
         if ((alignments != null) && (alignments.size() > 0)) {
 
@@ -330,16 +336,16 @@ public class AlignmentRenderer implements FeatureRenderer {
                     g.fillRect((int) pixelStart, y, w, h);
                     lastPixelDrawn = (int) pixelStart + w;
                 } else if (alignment instanceof PairedAlignment) {
-                    drawPairedAlignment((PairedAlignment) alignment, rowRect, context, renderOptions, leaveMargin, selectedReadNames, alignmentCounts);
+                    drawPairedAlignment((PairedAlignment) alignment, rowRect, context, renderOptions, leaveMargin, selectedReadNames, alignmentCounts, prefs);
                 } else if (alignment instanceof LinkedAlignment) {
-                    drawLinkedAlignment((LinkedAlignment) alignment, rowRect, context, renderOptions, leaveMargin, selectedReadNames, alignmentCounts);
+                    drawLinkedAlignment((LinkedAlignment) alignment, rowRect, context, renderOptions, leaveMargin, selectedReadNames, alignmentCounts, prefs);
                 } else {
-                    drawAlignment(alignment, rowRect, context, alignmentColor, renderOptions, leaveMargin, selectedReadNames, alignmentCounts, false);
+                    drawAlignment(alignment, rowRect, context, alignmentColor, renderOptions, leaveMargin, selectedReadNames, alignmentCounts, false, prefs);
                 }
             }
 
             // Optionally draw a border around the center base
-            boolean showCenterLine = prefs.getAsBoolean(PreferenceManager.SAM_SHOW_CENTER_LINE);
+            boolean showCenterLine = prefs.getAsBoolean(SAM_SHOW_CENTER_LINE);
             final int bottom = rowRect.y + rowRect.height;
             if (showCenterLine) {
                 // Calculate center lines
@@ -357,20 +363,85 @@ public class AlignmentRenderer implements FeatureRenderer {
         }
     }
 
+
+    public void renderExpandedInsertion(InsertionMarker i,
+                                        List<Alignment> alignments,
+                                        RenderContext context,
+                                        Rectangle rect,
+                                        boolean leaveMargin) {
+
+        double origin = context.getOrigin();
+        double locScale = context.getScale();
+
+        if ((alignments != null) && (alignments.size() > 0)) {
+
+            Graphics2D g = context.getGraphics2D("INSERTIONS");
+            //dhmay adding check for adequate track height
+            double dX = 1 / context.getScale();
+            int fontSize = (int) Math.min(dX, 12);
+            if (fontSize >= 8) {
+                Font f = FontManager.getFont(Font.BOLD, fontSize);
+                g.setFont(f);
+            }
+
+            for (Alignment alignment : alignments) {
+
+                if (alignment.getEnd() < i.position) continue;
+                if (alignment.getStart() > i.position) break;
+
+                AlignmentBlock aBlock = alignment.getInsertionAt(i.position);
+
+                if (aBlock != null) {
+
+                    // Compute the start and dend of the alignment in pixels
+                    double pixelStart = (aBlock.getStart() - origin) / locScale;
+                    double pixelEnd = (aBlock.getEnd() - origin) / locScale;
+                    int x = (int) pixelStart;
+
+                    // If any any part of the feature fits in the track rectangle draw  it
+                    if (pixelEnd < rect.x || pixelStart > rect.getMaxX()) {
+                        continue;
+                    }
+
+                    int bpWidth = aBlock.getBases().length;
+                    double pxWidthExact = ((double) bpWidth) / locScale;
+                    int h = (int) Math.max(1, rect.getHeight() - 2);
+                    int y = (int) (rect.getY() + (rect.getHeight() - h) / 2) - 1;
+
+
+                    if (aBlock.getBases() == null) {
+                        g.setColor(purple);
+                        g.fillRect(x, y, (int) pxWidthExact, h);
+
+                    } else {
+                        drawExpandedInsertionBases(x, context, rect, aBlock, leaveMargin);
+                    }
+                }
+
+
+            }
+        }
+    }
+
+
     private void drawLinkedAlignment(LinkedAlignment alignment, Rectangle rowRect, RenderContext context,
-                                     RenderOptions renderOptions, boolean leaveMargin,
-                                     Map<String, Color> selectedReadNames, AlignmentCounts alignmentCounts) {
+                                     AlignmentTrack.RenderOptions renderOptions, boolean leaveMargin,
+                                     Map<String, Color> selectedReadNames, AlignmentCounts alignmentCounts,
+                                     IGVPreferences prefs) {
 
         double origin = context.getOrigin();
         double locScale = context.getScale();
 
         Color alignmentColor = getAlignmentColor(alignment, renderOptions);
-        Graphics2D g = context.getGraphics2D("ALIGNMENT");
-        g.setColor(alignmentColor);
+     //   Graphics2D g = context.getGraphics2D("ALIGNMENT");
+     //   g.setColor(alignmentColor);
 
 
         List<Alignment> barcodedAlignments = alignment.alignments;
+
         if (barcodedAlignments.size() > 0) {
+
+            boolean mixedStrand =  (alignment instanceof LinkedAlignment && alignment.getStrand() == Strand.NONE);
             Alignment firstAlignment = barcodedAlignments.get(0);
 
             if (barcodedAlignments.size() > 1) {
@@ -388,11 +459,13 @@ public class AlignmentRenderer implements FeatureRenderer {
                 boolean overlapped = false;
                 Alignment al = barcodedAlignments.get(i);
                 if (al.isNegativeStrand()) {
+                    if(mixedStrand) alignmentColor = negStrandColor;
                     overlapped = (i > 0 && barcodedAlignments.get(i - 1).getAlignmentEnd() > al.getAlignmentStart());
                 } else {
+                    if(mixedStrand) alignmentColor = posStrandColor;
                     overlapped = i < barcodedAlignments.size() - 1 && al.getAlignmentEnd() > barcodedAlignments.get(i + 1).getAlignmentStart();
                 }
-                drawAlignment(al, rowRect, context, alignmentColor, renderOptions, leaveMargin, selectedReadNames, alignmentCounts, overlapped);
+                drawAlignment(al, rowRect, context, alignmentColor, renderOptions, leaveMargin, selectedReadNames, alignmentCounts, overlapped, prefs);
             }
         }
     }
@@ -479,10 +552,11 @@ public class AlignmentRenderer implements FeatureRenderer {
             PairedAlignment pair,
             Rectangle rowRect,
             RenderContext context,
-            RenderOptions renderOptions,
+            AlignmentTrack.RenderOptions renderOptions,
             boolean leaveMargin,
             Map<String, Color> selectedReadNames,
-            AlignmentCounts alignmentCounts) {
+            AlignmentCounts alignmentCounts,
+            IGVPreferences prefs) {
 
         double locScale = context.getScale();
 
@@ -495,7 +569,7 @@ public class AlignmentRenderer implements FeatureRenderer {
         Graphics2D g = context.getGraphics2D("ALIGNMENT");
         g.setColor(alignmentColor1);
 
-        drawAlignment(pair.firstAlignment, rowRect, context, alignmentColor1, renderOptions, leaveMargin, selectedReadNames, alignmentCounts, overlapped);
+        drawAlignment(pair.firstAlignment, rowRect, context, alignmentColor1, renderOptions, leaveMargin, selectedReadNames, alignmentCounts, overlapped, prefs);
 
         //If the paired alignment is in memory, we draw it.
         //However, we get the coordinates from the first alignment
@@ -506,7 +580,7 @@ public class AlignmentRenderer implements FeatureRenderer {
             }
             g.setColor(alignmentColor2);
 
-            drawAlignment(pair.secondAlignment, rowRect, context, alignmentColor2, renderOptions, leaveMargin, selectedReadNames, alignmentCounts, overlapped);
+            drawAlignment(pair.secondAlignment, rowRect, context, alignmentColor2, renderOptions, leaveMargin, selectedReadNames, alignmentCounts, overlapped, prefs);
         } else {
             return;
         }
@@ -535,9 +609,10 @@ public class AlignmentRenderer implements FeatureRenderer {
     /**
      * Draw a single ungapped block in an alignment.
      */
-    private void drawAlignmentBlock(Graphics2D blockGraphics, Graphics2D outlineGraphics, Graphics2D clippedGraphics,
+    private void drawAlignmentBlock(Graphics2D blockGraphics, Graphics2D outlineGraphics,
+                                    Graphics2D clippedGraphics, Graphics2D strandGraphics,
                                     boolean isNegativeStrand, int alignmentChromStart,
-                                    int alignmentChromEnd, int blockChromStart, int blockChromEnd,
+                                    int alignmentChromEnd, double blockChromStart, int blockChromEnd,
                                     int blockPxStart, int blockPxWidth, int y, int h, double locSale,
                                     boolean overlapped, boolean leftClipped, boolean rightClipped) {
 
@@ -549,17 +624,19 @@ public class AlignmentRenderer implements FeatureRenderer {
 
         boolean leftmost = (blockChromStart == alignmentChromStart),
                 rightmost = (blockChromEnd == alignmentChromEnd),
-                tallEnoughForArrow = h > 8;
+                tallEnoughForArrow = h > 6;
 
         if (h == 1) {
             blockGraphics.drawLine(blockPxStart, y, blockPxEnd, y);
         } else {
             Shape blockShape;
-            int arrowPxWidth = Math.min(5, blockPxWidth / 6);
+            int arrowPxWidth = Math.min(Math.min(5, h / 2), blockPxWidth / 6);
+
             if (!overlapped) {
-                int delta = Math.max(0, (int) (arrowPxWidth + 1 - AlignmentPacker.MIN_ALIGNMENT_SPACING / locSale));
-                if (leftmost && isNegativeStrand && tallEnoughForArrow) blockPxStart += delta;
-                if (rightmost && !isNegativeStrand && tallEnoughForArrow) blockPxEnd -= delta;
+                int pixelGap = (int) (AlignmentPacker.MIN_ALIGNMENT_SPACING / locSale);
+                if (pixelGap < arrowPxWidth) {
+                    arrowPxWidth = Math.max(0, arrowPxWidth - pixelGap);
+                }
             }
 
             // Draw block as a rectangle; use a pointed hexagon in terminal block to indicate strand.
@@ -583,26 +660,14 @@ public class AlignmentRenderer implements FeatureRenderer {
             }
             if (leftmost && leftClipped) {
                 clippedGraphics.drawLine(xPoly[0], yPoly[0], xPoly[1], yPoly[1]);
-                clippedGraphics.drawLine(xPoly[5], yPoly[5], xPoly[0], yPoly[0]);
+                clippedGraphics.drawLine(xPoly[5], yPoly[5] - 1, xPoly[0], yPoly[0]);
             }
             if (rightmost && rightClipped) {
                 clippedGraphics.drawLine(xPoly[2], yPoly[2], xPoly[3], yPoly[3]);
-                clippedGraphics.drawLine(xPoly[3], yPoly[3], xPoly[4], yPoly[4]);
+                clippedGraphics.drawLine(xPoly[3], yPoly[3], xPoly[4], yPoly[4] - 1);
             }
         }
 
-        // If the block is too small for a pointed hexagon arrow, then indicate strand with a line.
-        if (!tallEnoughForArrow) {
-            int tH = Math.max(1, h - 1);
-            if (leftmost && isNegativeStrand) {
-                blockGraphics.setColor(Color.DARK_GRAY);
-                blockGraphics.drawLine(blockPxStart, y, blockPxStart, y + tH);
-            }
-            if (rightmost && !isNegativeStrand) {
-                blockGraphics.setColor(Color.DARK_GRAY);
-                blockGraphics.drawLine(blockPxEnd, y, blockPxEnd, y + tH);
-            }
-        }
     }
 
     /**
@@ -626,7 +691,8 @@ public class AlignmentRenderer implements FeatureRenderer {
             boolean leaveMargin,
             Map<String, Color> selectedReadNames,
             AlignmentCounts alignmentCounts,
-            boolean overlapped) {
+            boolean overlapped,
+            IGVPreferences prefs) {
 
         AlignmentBlock[] blocks = alignment.getAlignmentBlocks();
 
@@ -635,16 +701,16 @@ public class AlignmentRenderer implements FeatureRenderer {
 
         // No blocks.  Note: SAM/BAM alignments always have at least 1 block
         if (blocks == null || blocks.length == 0) {
-            drawSimpleAlignment(alignment, rowRect, g, context, renderOptions.flagUnmappedPairs);
+            drawSimpleAlignment(alignment, rowRect, g, context, renderOptions.isFlagUnmappedPairs());
             return;
         }
 
-        boolean flagLargeIndels = prefs.getAsBoolean(PreferenceManager.SAM_FLAG_LARGE_INDELS);
-        int largeInsertionsThreshold = prefs.getAsInt(PreferenceManager.SAM_LARGE_INDELS_THRESHOLD);
-        boolean hideSmallIndelsBP = PreferenceManager.getInstance().getAsBoolean(PreferenceManager.SAM_HIDE_SMALL_INDEL_BP);
-        int indelThresholdBP = PreferenceManager.getInstance().getAsInt(PreferenceManager.SAM_SMALL_INDEL_BP_THRESHOLD);
-        boolean quickConsensus = renderOptions.quickConsensusMode;
-        final float snpThreshold = prefs.getAsFloat(PreferenceManager.SAM_ALLELE_THRESHOLD);
+        boolean flagLargeIndels = prefs.getAsBoolean(SAM_FLAG_LARGE_INDELS);
+        int largeInsertionsThreshold = prefs.getAsInt(SAM_LARGE_INDELS_THRESHOLD);
+        boolean hideSmallIndelsBP = prefs.getAsBoolean(SAM_HIDE_SMALL_INDEL);
+        int indelThresholdBP = prefs.getAsInt(SAM_SMALL_INDEL_BP_THRESHOLD);
+        boolean quickConsensus = renderOptions.isQuickConsensusMode();
+        final float snpThreshold = prefs.getAsFloat(SAM_ALLELE_THRESHOLD);
 
         // Scale and position of the alignment rendering.
         double locScale = context.getScale();
@@ -658,16 +724,21 @@ public class AlignmentRenderer implements FeatureRenderer {
             c = (c == null) ? Color.blue : c;
             outlineGraphics = context.getGraphics2D("THICK_STROKE");
             g.setColor(c);
-        } else if (renderOptions.flagUnmappedPairs && alignment.isPaired() && !alignment.getMate().isMapped()) {
+        } else if (renderOptions.isFlagUnmappedPairs() && alignment.isPaired() && !alignment.getMate().isMapped()) {
             outlineGraphics = context.getGraphics2D("OUTLINE");
             outlineGraphics.setColor(Color.red);
-        } else if (alignment.getMappingQuality() == 0 && renderOptions.flagZeroQualityAlignments) {
+        } else if (alignment.getMappingQuality() == 0 && renderOptions.isFlagZeroQualityAlignments()) {
             outlineGraphics = context.getGraphic2DForColor(OUTLINE_COLOR);
         }
 
         // Get a graphics context for drawing clipping indicators.
         Graphics2D clippedGraphics = context.getGraphic2DForColor(clippedColor);
-        clippedGraphics.setStroke(new BasicStroke(1.5f));
+        if (h > 5) {
+            clippedGraphics.setStroke(new BasicStroke(1.2f));
+        }
+
+        // Get a graphics context for drawing strand indicators.
+        Graphics2D strandGraphics = context.getGraphics2D("STRAND");
 
         // Define a graphics context for indel labels.
         Graphics2D largeIndelGraphics = context.getGraphics2D("INDEL_LABEL");
@@ -677,7 +748,7 @@ public class AlignmentRenderer implements FeatureRenderer {
         Graphics2D bpGraphics = context.getGraphics2D("BASE");
         int dX = (int) Math.max(1, (1.0 / locScale));
         if (dX >= 8) {
-            Font f = FontManager.getFont(Font.BOLD, Math.min(dX, 12));
+            Font f = FontManager.getFont(Font.BOLD, Math.min(dX, h));
             bpGraphics.setFont(f);
         }
 
@@ -687,17 +758,18 @@ public class AlignmentRenderer implements FeatureRenderer {
                 alignmentChromEnd = (int) (lastBlock.getStart() + lastBlock.getLength());
 
         /* Clipping */
-        boolean flagClipping = prefs.getAsBoolean(PreferenceManager.SAM_FLAG_CLIPPING);
-        int clippingThreshold = prefs.getAsInt(PreferenceManager.SAM_CLIPPING_THRESHOLD);
+        boolean flagClipping = prefs.getAsBoolean(SAM_FLAG_CLIPPING);
+        int clippingThreshold = prefs.getAsInt(SAM_CLIPPING_THRESHOLD);
         int[] clipping = SAMAlignment.getClipping(alignment.getCigarString());
         boolean leftClipped = flagClipping && ((clipping[0] + clipping[1]) > clippingThreshold);
         boolean rightClipped = flagClipping && ((clipping[2] + clipping[3]) > clippingThreshold);
 
         // BED-style coordinate for the visible context.  Do not draw outside the context.
-        int contextChromStart = (int) context.getOrigin(),
-                contextChromEnd = (int) context.getEndLocation();
+        double contextChromStart = context.getOrigin(),
+                contextChromEnd = Math.ceil(context.getEndLocation());
+
         // BED-style start coordinate for the next alignment block to draw.
-        int blockChromStart = (int) Math.max(alignmentChromStart, contextChromStart);
+        double blockChromStart =   Math.max(alignmentChromStart, contextChromStart);
 
         // Draw aligment blocks separated by gaps.  Define the blocks by walking through the gap list,
         // skipping over gaps that are too small to show at the curren resolution.
@@ -705,11 +777,10 @@ public class AlignmentRenderer implements FeatureRenderer {
         if (gaps != null) {
 
             for (Gap gap : gaps) {
-                int gapChromStart = (int) gap.getStart(),
-                        gapChromWidth = (int) gap.getnBases(),
+                int gapChromStart = gap.getStart(),
+                        gapChromWidth = gap.getnBases(),
                         gapChromEnd = gapChromStart + gapChromWidth,
                         gapPxEnd = (int) ((Math.min(contextChromEnd, gapChromEnd) - contextChromStart) / locScale);
-                double gapPxWidthExact = ((double) gapChromWidth) / locScale;
 
                 if (gapChromEnd <= contextChromStart) { // gap ends before the visible context
                     continue; // move to next gap
@@ -733,28 +804,36 @@ public class AlignmentRenderer implements FeatureRenderer {
                         blockChromEnd = gapChromStart,
                         blockPxWidth = (int) Math.max(1, (blockChromEnd - blockChromStart) / locScale - 1),
                         blockPxEnd = blockPxStart + blockPxWidth;
-                drawAlignmentBlock(g, outlineGraphics, clippedGraphics, alignment.isNegativeStrand(),
+
+                drawAlignmentBlock(g, outlineGraphics, clippedGraphics, strandGraphics, alignment.isNegativeStrand(),
                         alignmentChromStart, alignmentChromEnd, blockChromStart, blockChromEnd,
                         blockPxStart, blockPxWidth, y, h, locScale, overlapped, leftClipped, rightClipped);
 
-
                 // Draw the gap line.
                 Graphics2D gapGraphics = context.getGraphics2D("GAP");
+                int ggOffset = 0;
                 if (gap.getType() == SAMAlignment.UNKNOWN) {
                     gapGraphics.setColor(unknownGapColor);
                 } else if (gap.getType() == SAMAlignment.SKIPPED_REGION) {
                     gapGraphics.setColor(skippedColor);
-                } else {
+                } else if (h > 5) {
                     gapGraphics = context.getGraphics2D("THICK_STROKE");
                     gapGraphics.setColor(deletionColor);
+                    ggOffset = 0;
                 }
 
-                gapGraphics.drawLine(blockPxEnd + 1, y + h / 2, gapPxEnd, y + h / 2);
-
-
+                gapGraphics.drawLine(blockPxEnd + ggOffset, y + h / 2, gapPxEnd - ggOffset, y + h / 2);
                 // Label the size of the deletion if it is "large" and the label fits.
                 if (flagLargeIndels && (gap.getType() == SAMAlignment.DELETION) && gapChromWidth > largeInsertionsThreshold) {
-                    drawLargeIndelLabel(largeIndelGraphics, false, Globals.DECIMAL_FORMAT.format(gapChromWidth), (int) ((blockPxEnd + gapPxEnd) / 2), y, h, gapPxEnd - blockPxEnd - 2, null);
+                    drawLargeIndelLabel(largeIndelGraphics,
+                            false,
+                            Globals.DECIMAL_FORMAT.format(gapChromWidth),
+                            ((blockPxEnd + gapPxEnd) / 2),
+                            y,
+                            h,
+                            gapPxEnd - blockPxEnd - 2,
+                            context.translateX,
+                            null);
                 }
 
                 // Start the next alignment block after the gap.
@@ -766,19 +845,19 @@ public class AlignmentRenderer implements FeatureRenderer {
         int blockPxStart = (int) ((blockChromStart - contextChromStart) / locScale),
                 blockChromEnd = (int) Math.min(contextChromEnd, alignmentChromEnd),
                 blockPxWidth = (int) Math.max(1, (blockChromEnd - blockChromStart) / locScale - 1);
-        drawAlignmentBlock(g, outlineGraphics, clippedGraphics, alignment.isNegativeStrand(),
+        drawAlignmentBlock(g, outlineGraphics, clippedGraphics, strandGraphics, alignment.isNegativeStrand(),
                 alignmentChromStart, alignmentChromEnd, blockChromStart, blockChromEnd,
                 blockPxStart, blockPxWidth, y, h, locScale, overlapped, leftClipped, rightClipped);
 
         // Draw insertions.
-        drawInsertions(rowRect, alignment, context, renderOptions, alignmentCounts);
+        drawInsertions(rowRect, alignment, context, renderOptions, alignmentCounts, leaveMargin, prefs);
 
         // Draw basepairs / mismatches.
         if (locScale < 100) {
-            if (renderOptions.showMismatches || renderOptions.showAllBases) {
+            if (renderOptions.isShowMismatches() || renderOptions.isShowAllBases()) {
                 for (AlignmentBlock aBlock : alignment.getAlignmentBlocks()) {
-                    int aBlockChromStart = (int) aBlock.getStart(),
-                            aBlockChromEnd = (int) (aBlock.getStart() + aBlock.getLength());
+                    int aBlockChromStart = aBlock.getStart(),
+                            aBlockChromEnd = aBlock.getStart() + aBlock.getLength();
 
                     if (aBlockChromEnd <= contextChromStart) { // block ends before the visible context
                         continue; // move to next block
@@ -786,11 +865,12 @@ public class AlignmentRenderer implements FeatureRenderer {
                         break; // done examining blocks
                     }
 
-                    drawBases(context, bpGraphics, rowRect, alignment, aBlock, alignmentCounts, alignmentColor, renderOptions);
+                    drawBases(context, bpGraphics, rowRect, alignment, aBlock, alignmentCounts, alignmentColor, leaveMargin, renderOptions, prefs);
                 }
             }
         }
     }
+
 
     /**
      * Draw bases for an alignment block.  The bases are "overlaid" on the block with a transparency value (alpha)
@@ -803,6 +883,7 @@ public class AlignmentRenderer implements FeatureRenderer {
      * @param block
      * @param alignmentCounts
      * @param alignmentColor
+     * @param leaveMargin
      * @param renderOptions
      */
     private void drawBases(RenderContext context,
@@ -812,7 +893,9 @@ public class AlignmentRenderer implements FeatureRenderer {
                            AlignmentBlock block,
                            AlignmentCounts alignmentCounts,
                            Color alignmentColor,
-                           RenderOptions renderOptions) {
+                           boolean leaveMargin,
+                           AlignmentTrack.RenderOptions renderOptions,
+    IGVPreferences prefs) {
 
         boolean isSoftClipped = block.isSoftClipped();
 
@@ -827,14 +910,14 @@ public class AlignmentRenderer implements FeatureRenderer {
 
         boolean haveBases = (block.hasBases() && block.getLength() > 0);
 
-        ShadeBasesOption shadeBasesOption = renderOptions.shadeBasesOption;
+        ShadeBasesOption shadeBasesOption = renderOptions.getShadeBasesOption();
         ColorOption colorOption = renderOptions.getColorOption();
-        final boolean quickConsensus = renderOptions.quickConsensusMode;
-        final float snpThreshold = prefs.getAsFloat(PreferenceManager.SAM_ALLELE_THRESHOLD);
+        final boolean quickConsensus = renderOptions.isQuickConsensusMode();
+        final float snpThreshold = prefs.getAsFloat(SAM_ALLELE_THRESHOLD);
 
 
         // Disable showAllBases in bisulfite mode
-        boolean showAllBases = renderOptions.showAllBases &&
+        boolean showAllBases = renderOptions.isShowAllBases() &&
                 !(colorOption == ColorOption.BISULFITE || colorOption == ColorOption.NOMESEQ);
 
         if (!showAllBases && (!haveBases || reference == null)) {
@@ -901,11 +984,13 @@ public class AlignmentRenderer implements FeatureRenderer {
 
                 BisulfiteBaseInfo.DisplayStatus bisstatus = (bisinfo == null) ? null : bisinfo.getDisplayStatus(idx);
 
-                if (isSoftClipped || bisulfiteMode ||
+                final boolean showBase =
+                        isSoftClipped ||
+                        bisulfiteMode ||
                         // In "quick consensus" mode, only show mismatches at positions with a consistent alternative basepair.
-                        (!quickConsensus || alignmentCounts.isConsensusMismatch(loc, reference[idx], chr, snpThreshold))
-                        ) {
-                    drawBase(g, color, c, pX, pY, dX, dY, bisulfiteMode, bisstatus);
+                        (!quickConsensus || alignmentCounts.isConsensusMismatch(loc, reference[idx], chr, snpThreshold));
+                if (showBase) {
+                    drawBase(g, color, c, pX, pY, dX, dY - (leaveMargin ? 2 : 0), bisulfiteMode, bisstatus);
                 }
             }
         }
@@ -928,9 +1013,9 @@ public class AlignmentRenderer implements FeatureRenderer {
      */
     private void drawBase(Graphics2D g, Color color, char c, int pX, int pY, int dX, int dY, boolean bisulfiteMode,
                           DisplayStatus bisstatus) {
-        if (((dY >= 12) && (dX >= 8)) && (!bisulfiteMode || (bisulfiteMode && bisstatus.equals(DisplayStatus.CHARACTER)))) {
+        if (((dY >= 12) && (dX >= dY)) && (!bisulfiteMode || (bisulfiteMode && bisstatus.equals(DisplayStatus.CHARACTER)))) {
             g.setColor(color);
-            GraphicUtils.drawCenteredText(new char[]{c}, pX, pY + 1, dX, dY - 2, g);
+            GraphicUtils.drawCenteredText(new char[]{c}, pX, pY, dX, dY, g);
         } else {
 
             int pX0i = pX, dXi = dX;
@@ -948,22 +1033,18 @@ public class AlignmentRenderer implements FeatureRenderer {
 
             if (color != null) {
                 g.setColor(color);
-                if (dY < 10) {
-                    g.fillRect(pX0i, pY, dXi, dY);
-                } else {
-                    g.fillRect(pX0i, pY + 1, dW, dY - 3);
-                }
+                g.fillRect(pX0i, pY, dXi, dY);
             }
         }
     }
 
-    private Color getShadedColor(byte qual, Color foregroundColor, Color backgroundColor, PreferenceManager prefs) {
+    private Color getShadedColor(byte qual, Color foregroundColor, Color backgroundColor, IGVPreferences prefs) {
         float alpha = 0;
-        int minQ = prefs.getAsInt(PreferenceManager.SAM_BASE_QUALITY_MIN);
+        int minQ = prefs.getAsInt(SAM_BASE_QUALITY_MIN);
         if (qual < minQ) {
             alpha = 0.1f;
         } else {
-            int maxQ = prefs.getAsInt(PreferenceManager.SAM_BASE_QUALITY_MAX);
+            int maxQ = prefs.getAsInt(SAM_BASE_QUALITY_MAX);
             alpha = Math.max(0.1f, Math.min(1.0f, 0.1f + 0.9f * (qual - minQ) / (maxQ - minQ)));
         }
         // Round alpha to nearest 0.1
@@ -977,15 +1058,16 @@ public class AlignmentRenderer implements FeatureRenderer {
     }
 
     private void drawLargeIndelLabel(Graphics2D g, boolean isInsertion, String labelText, int pxCenter,
-                                     int pxTop, int pxH, int pxWmax, AlignmentBlock insertionBlock) {
+                                     int pxTop, int pxH, int pxWmax, int translateX, AlignmentBlock insertionBlock) {
 
         final int pxPad = 2;   // text padding in the label
-        final int pxWing = 2;  // width of the cursor "wing"
+        final int pxWing = (pxH > 10 ? 2 : 1);  // width of the cursor "wing"
+        final int minTextHeight = 8; // min height to draw text
 
         // Calculate the width required to draw the label
         Rectangle2D textBounds = g.getFontMetrics().getStringBounds(labelText, g);
         int pxTextW = 2 * pxPad + (int) textBounds.getWidth();
-        boolean doesTextFit = (pxTextW < pxWmax);
+        boolean doesTextFit = (pxH >= minTextHeight) && (pxTextW < pxWmax);
 
         if (!doesTextFit && !isInsertion) {
             return;
@@ -1000,45 +1082,52 @@ public class AlignmentRenderer implements FeatureRenderer {
         g.setColor(isInsertion ? purple : Color.white);
         g.fillRect(pxLeft, pxTop, pxRight - pxLeft, pxH);
 
-        // TODO -- record this "object" for popup text
-        if (isInsertion) {
+        if (isInsertion && pxH > 5) {
             g.fillRect(pxLeft - pxWing, pxTop, pxRight - pxLeft + 2 * pxWing, 2);
             g.fillRect(pxLeft - pxWing, pxTop + pxH - 2, pxRight - pxLeft + 2 * pxWing, 2);
         } // draw "wings" For insertions
 
         if (doesTextFit) {
             g.setColor(isInsertion ? Color.white : purple);
-            g.drawString(labelText, pxLeft + pxPad, pxTop + pxH - 2);
+            GraphicUtils.drawCenteredText(labelText, pxLeft, pxTop, pxW, pxH, g);
         } // draw the text if it fits
 
-        if (insertionBlock != null) insertionBlock.setPixelRange(pxLeft, pxRight);
+        if (insertionBlock != null) {
+            insertionBlock.setPixelRange(pxLeft + translateX, pxRight + translateX);
+        }
     }
 
-    private void drawInsertions(Rectangle rect, Alignment alignment, RenderContext context, RenderOptions renderOptions,
-                                AlignmentCounts alignmentCounts) {
+    private void drawInsertions(Rectangle rect, Alignment alignment, RenderContext context, AlignmentTrack.RenderOptions renderOptions,
+                                AlignmentCounts alignmentCounts, boolean leaveMargin, IGVPreferences prefs) {
 
         AlignmentBlock[] insertions = alignment.getInsertions();
         double origin = context.getOrigin();
         double locScale = context.getScale();
-        boolean flagLargeIndels = prefs.getAsBoolean(PreferenceManager.SAM_FLAG_LARGE_INDELS);
-        int largeInsertionsThreshold = prefs.getAsInt(PreferenceManager.SAM_LARGE_INDELS_THRESHOLD);
-        final float snpThreshold = prefs.getAsFloat(PreferenceManager.SAM_ALLELE_THRESHOLD);
+        boolean flagLargeIndels = prefs.getAsBoolean(SAM_FLAG_LARGE_INDELS);
+        int largeInsertionsThreshold = prefs.getAsInt(SAM_LARGE_INDELS_THRESHOLD);
+        final float snpThreshold = prefs.getAsFloat(SAM_ALLELE_THRESHOLD);
 
         // TODO Quick consensus for insertions needs worked -- disabled for now
-        boolean quickConsensus = false ;//renderOptions.quickConsensusMode;
+        boolean quickConsensus = false;//renderOptions.quickConsensusMode;
 
 
         if (insertions != null) {
 
-            boolean hideSmallIndelsBP = PreferenceManager.getInstance().getAsBoolean(PreferenceManager.SAM_HIDE_SMALL_INDEL_BP);
-            int indelThresholdBP = PreferenceManager.getInstance().getAsInt(PreferenceManager.SAM_SMALL_INDEL_BP_THRESHOLD);
+            InsertionMarker expandedInsertion = InsertionManager.getInstance().getSelectedInsertion(context.getReferenceFrame().getChrName());
+            int expandedPosition = expandedInsertion == null ? -1 : expandedInsertion.position;
+
+            boolean hideSmallIndelsBP = prefs.getAsBoolean(SAM_HIDE_SMALL_INDEL);
+            int indelThresholdBP = prefs.getAsInt(SAM_SMALL_INDEL_BP_THRESHOLD);
 
             for (AlignmentBlock aBlock : insertions) {
+
+                if(aBlock.getStart() == expandedPosition) continue;   // Skip, will be drawn expanded
+
                 int x = (int) ((aBlock.getStart() - origin) / locScale);
                 int bpWidth = aBlock.getBases().length;
                 double pxWidthExact = ((double) bpWidth) / locScale;
-                int h = (int) Math.max(1, rect.getHeight() - 2);
-                int y = (int) (rect.getY() + (rect.getHeight() - h) / 2) - 1;
+                int h = (int) Math.max(1, rect.getHeight() - (leaveMargin ? 2 : 0));
+                int y = (int) (rect.getY() + (rect.getHeight() - h) / 2) - (leaveMargin ? 1 : 0);
 
                 // Don't draw out of clipping rect
                 if (x > rect.getMaxX()) {
@@ -1047,38 +1136,103 @@ public class AlignmentRenderer implements FeatureRenderer {
                     continue;
                 }
 
-                if ((!hideSmallIndelsBP || bpWidth >= indelThresholdBP) &&
-                        (!quickConsensus || alignmentCounts.isConsensusInsertion(aBlock.getStart(), snpThreshold))) {
+                if ((!hideSmallIndelsBP || bpWidth >= indelThresholdBP)) {
+                       // && (!quickConsensus || alignmentCounts.isConsensusInsertion(aBlock.getStart(), snpThreshold))) {
                     if (flagLargeIndels && bpWidth > largeInsertionsThreshold) {
-                        drawLargeIndelLabel(context.getGraphics2D("INDEL_LABEL"), true, Globals.DECIMAL_FORMAT.format(bpWidth), x - 1, y, h, (int) pxWidthExact, aBlock);
+                        drawLargeIndelLabel(context.getGraphics2D("INDEL_LABEL"),
+                                true,
+                                Globals.DECIMAL_FORMAT.format(bpWidth),
+                                x - 1,
+                                y,
+                                h,
+                                (int) pxWidthExact,
+                                context.translateX,
+                                aBlock);
                     } else {
-
+                        int pxWing = (h > 10 ? 2 : (h > 5) ? 1 : 0);
                         Graphics2D g = context.getGraphics();
                         g.setColor(purple);
-                        g.fillRect(x - 2, y, 4, 2);
-                        g.fillRect(x - 1, y, 2, h);
-                        g.fillRect(x - 2, y + h - 2, 4, 2);
+                        g.fillRect(x, y, 2, h);
+                        g.fillRect(x - pxWing, y, 2 + 2 * pxWing, 2);
+                        g.fillRect(x - pxWing, y + h - 2, 2 + 2 * pxWing, 2);
 
-                        aBlock.setPixelRange(x - 2, x + 4);
+                        x += context.translateX;
+                        aBlock.setPixelRange(x - pxWing, x + 2 + pxWing);
                     }
                 }
             }
         }
     }
 
-    private Color getAlignmentColor(Alignment alignment, RenderOptions renderOptions) {
+
+    private void drawExpandedInsertionBases(int pixelPosition,
+                                            RenderContext context,
+                                            Rectangle rect,
+                                            AlignmentBlock block,
+                                            boolean leaveMargin) {
+
+        Graphics2D g = context.getGraphics2D("INSERTIONS");
+        byte[] bases = block.getBases();
+        int padding = block.getPadding();
+
+        double locScale = context.getScale();
+        double origin = context.getOrigin();
+
+        // Compute bounds
+        int pY = (int) rect.getY();
+        int dY = (int) rect.getHeight();
+        int dX = (int) Math.max(1, (1.0 / locScale));
+
+        final int size = bases.length + padding;
+        for (int p = 0; p < size; p++) {
+
+            char c = p < padding ? '-' : (char) bases[p - padding];
+
+            Color color = SequenceRenderer.nucleotideColors.get(c);
+            if (color == null) {
+                color = Color.black;
+            }
+
+            // If there is room for text draw the character, otherwise
+            // just draw a rectangle to represent the
+            int pX = (int) (pixelPosition + (p / locScale));
+
+            // Don't draw out of clipping rect
+            if (pX > rect.getMaxX()) {
+                break;
+            } else if (pX + dX < rect.getX()) {
+                continue;
+            }
+
+            drawBase(g, color, c, pX, pY, dX, dY - (leaveMargin ? 2 : 0), false, null);
+        }
+
+        int leftX = pixelPosition + context.translateX;
+        int rightX = leftX + rect.width;
+        block.setPixelRange(leftX, rightX);
+
+    }
+
+
+    private Color getAlignmentColor(Alignment alignment, AlignmentTrack.RenderOptions renderOptions) {
 
         // Set color used to draw the feature.  Highlight features that intersect the
         // center line.  Also restorePersistentState row "score" if alignment intersects center line
 
-
-        Color color = alignment.getColor();
-        if (color != null) return color;   // Color has been explicitly set
-
         Color c = DEFAULT_ALIGNMENT_COLOR;
 
         ColorOption colorOption = renderOptions.getColorOption();
+
         switch (colorOption) {
+
+            case YC_TAG:
+
+                Color ycColor = alignment.getYcColor();
+                if(ycColor != null) {
+                    c = ycColor;
+                }
+                break;
+
             case BISULFITE:
                 // Just a simple forward/reverse strand color scheme that won't clash with the
                 // methylation rectangles.
@@ -1097,7 +1251,7 @@ public class AlignmentRenderer implements FeatureRenderer {
             case UNEXPECTED_PAIR:
             case PAIR_ORIENTATION:
                 c = getOrientationColor(alignment, getPEStats(alignment, renderOptions));
-                if (colorOption == ColorOption.PAIR_ORIENTATION) {
+                if (c != DEFAULT_ALIGNMENT_COLOR || colorOption == ColorOption.PAIR_ORIENTATION) {
                     break;
                 }
             case INSERT_SIZE:
@@ -1201,11 +1355,11 @@ public class AlignmentRenderer implements FeatureRenderer {
                     }
                 }
                 break;
-            case LINK_STRAND:
-                if (alignment instanceof LinkedAlignment && ((LinkedAlignment) alignment).getStrand() == Strand.NONE) {
-                    c = LL_COLOR;
-                }
-                break;
+       //     case LINK_STRAND:
+       //         if (alignment instanceof LinkedAlignment && ((LinkedAlignment) alignment).getStrand() == Strand.NONE) {
+       //             c = LL_COLOR;
+       //         }
+       //         break;
 
 
             default:
@@ -1218,7 +1372,7 @@ public class AlignmentRenderer implements FeatureRenderer {
         }
         if (c == null) c = DEFAULT_ALIGNMENT_COLOR;
 
-        if (alignment.getMappingQuality() == 0 && renderOptions.flagZeroQualityAlignments) {
+        if (alignment.getMappingQuality() == 0 && renderOptions.isFlagZeroQualityAlignments()) {
             // Maping Q = 0
             float alpha = 0.15f;
             // Assuming white background TODO -- this should probably be passed in
@@ -1242,7 +1396,7 @@ public class AlignmentRenderer implements FeatureRenderer {
         return ctable;
     }
 
-    public static PEStats getPEStats(Alignment alignment, RenderOptions renderOptions) {
+    public static PEStats getPEStats(Alignment alignment, AlignmentTrack.RenderOptions renderOptions) {
         String lb = alignment.getLibrary();
         if (lb == null) lb = "null";
         PEStats peStats = null;
@@ -1261,7 +1415,7 @@ public class AlignmentRenderer implements FeatureRenderer {
      * @return -1 if unknown (stats not computed), 0 if not
      * an outlier, 1 if outlier
      */
-    private int getOutlierStatus(Alignment alignment, RenderOptions renderOptions) {
+    private int getOutlierStatus(Alignment alignment, AlignmentTrack.RenderOptions renderOptions) {
         PEStats peStats = getPEStats(alignment, renderOptions);
         if (renderOptions.isComputeIsizes() && peStats != null) {
             int minThreshold = peStats.getMinOutlierInsertSize();
@@ -1284,7 +1438,7 @@ public class AlignmentRenderer implements FeatureRenderer {
      * @param alignment
      * @return
      */
-    private int compareToBounds(Alignment alignment, RenderOptions renderOptions) {
+    private int compareToBounds(Alignment alignment, AlignmentTrack.RenderOptions renderOptions) {
         int minThreshold = renderOptions.getMinInsertSize();
         int maxThreshold = renderOptions.getMaxInsertSize();
         PEStats peStats = getPEStats(alignment, renderOptions);

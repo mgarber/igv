@@ -25,32 +25,33 @@
 
 package org.broad.igv.track;
 
+import htsjdk.tribble.Feature;
+import htsjdk.tribble.TribbleException;
 import org.apache.log4j.Logger;
 import org.broad.igv.Globals;
-import org.broad.igv.PreferenceManager;
 import org.broad.igv.cli_plugin.PluginFeatureSource;
 import org.broad.igv.cli_plugin.PluginSource;
 import org.broad.igv.feature.*;
 import org.broad.igv.feature.genome.Genome;
 import org.broad.igv.feature.genome.GenomeManager;
+import org.broad.igv.prefs.Constants;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.renderer.*;
-import org.broad.igv.renderer.Renderer;
 import org.broad.igv.session.IGVSessionReader;
 import org.broad.igv.session.SubtlyImportant;
 import org.broad.igv.tools.FeatureSearcher;
 import org.broad.igv.tools.motiffinder.MotifFinderSource;
 import org.broad.igv.ui.IGV;
 import org.broad.igv.ui.UIConstants;
-import org.broad.igv.ui.event.DataLoadedEvent;
-import org.broad.igv.ui.event.IGVEventBus;
-import org.broad.igv.ui.event.IGVEventObserver;
-import org.broad.igv.ui.event.ViewChange;
+import org.broad.igv.event.DataLoadedEvent;
+import org.broad.igv.event.IGVEventBus;
+import org.broad.igv.event.IGVEventObserver;
 import org.broad.igv.ui.panel.ReferenceFrame;
 import org.broad.igv.ui.util.MessageUtils;
-import org.broad.igv.util.*;
+import org.broad.igv.util.BrowserLauncher;
+import org.broad.igv.util.ResourceLocator;
+import org.broad.igv.util.StringUtils;
 import org.broad.igv.variant.VariantTrack;
-import htsjdk.tribble.Feature;
-import htsjdk.tribble.TribbleException;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
@@ -120,10 +121,7 @@ public class FeatureTrack extends AbstractTrack implements IGVEventObserver {
 
     protected FeatureSource source;
 
-    protected boolean featuresLoading = false;
-
-    //track which row of the expanded track is selected by the user.
-    //Selection goes away if tracks are collpased
+    //track which row of the expanded track is selected by the user. Selection goes away if tracks are collpased
     protected int selectedFeatureRowIndex = NO_FEATURE_ROW_SELECTED;
 
     //Feature selected by the user.  This is repopulated on each handleDataClick() call.
@@ -138,11 +136,6 @@ public class FeatureTrack extends AbstractTrack implements IGVEventObserver {
     private static final String PLUGIN_SOURCE = "PluginSource";
     private static final String SEQUENCE_MATCH_SOURCE = "SequenceMatchSource";
 
-    private static Object loadLock = new Object();
-
-    //Force this track to load data synchronously.
-    //With this set to false, it chooses depending on the source
-    private boolean forceLoadSync = false;
 
     String trackLine = null;
 
@@ -226,7 +219,7 @@ public class FeatureTrack extends AbstractTrack implements IGVEventObserver {
 
         int sourceFeatureWindowSize = source.getFeatureWindowSize();
         if (sourceFeatureWindowSize > 0) {  // Only apply a default if the feature source supports visibility window.
-            int defVisibilityWindow = PreferenceManager.getInstance().getAsInt(PreferenceManager.DEFAULT_VISIBILITY_WINDOW);
+            int defVisibilityWindow = PreferencesManager.getPreferences().getAsInt(Constants.DEFAULT_VISIBILITY_WINDOW);
             if (defVisibilityWindow > 0) {
                 setVisibilityWindow(defVisibilityWindow * 1000);
             } else {
@@ -241,19 +234,27 @@ public class FeatureTrack extends AbstractTrack implements IGVEventObserver {
 
     }
 
+    @Override
+    public void dispose() {
+        super.dispose();
+        if(source != null) {
+            source.dispose();
+            source = null;
+        }
+    }
+
     /**
      * Called after features are finished loading, which can be asynchronous
      */
     public void receiveEvent(Object e) {
         if (e instanceof DataLoadedEvent) {
-            DataLoadedEvent event = (DataLoadedEvent) e;
-            if (IGV.hasInstance()) {
-                // TODO -- WHY IS THIS HERE????
-                //TODO Assuming this is necessary, there can be many data loaded events in succession,
-                //don't want to layout for each one
-                IGV.getInstance().layoutMainPanel();
-            }
-            event.getReferenceFrame().getEventBus().post( ViewChange.Result());
+//            DataLoadedEvent event = (DataLoadedEvent) e;
+//            if (IGV.hasInstance()) {
+//                // TODO -- WHY IS THIS HERE????
+//                //TODO Assuming this is necessary, there can be many data loaded events in succession,
+//                //don't want to layout for each one
+//                IGV.getInstance().layoutMainPanel();
+//            }
         } else {
             log.info("Unknown event type: " + e.getClass());
         }
@@ -537,7 +538,7 @@ public class FeatureTrack extends AbstractTrack implements IGVEventObserver {
 
         int rowHeight;
         DisplayMode mode = getDisplayMode();
-        switch(mode) {
+        switch (mode) {
             case SQUISHED:
                 rowHeight = getSquishedRowHeight();
                 break;
@@ -548,7 +549,7 @@ public class FeatureTrack extends AbstractTrack implements IGVEventObserver {
                 rowHeight = getHeight();
         }
 
-       return Math.max(0, Math.min(levelRects.size()-1, (int) ((y - this.getY() - this.margin)/ rowHeight)));
+        return Math.max(0, Math.min(levelRects.size() - 1, (int) ((y - this.getY() - this.margin) / rowHeight)));
 
     }
 
@@ -581,9 +582,9 @@ public class FeatureTrack extends AbstractTrack implements IGVEventObserver {
 
         List<Feature> featureList = null;
         if (possFeatures != null) {
-            // give a 2 pixel window, otherwise very narrow features will be missed.
+            // give a minum 2 pixel or 1/2 bp window, otherwise very narrow features will be missed.
             double bpPerPixel = frame.getScale();
-            double minWidth = MINIMUM_FEATURE_SPACING * bpPerPixel;
+            double minWidth = Math.max(0.5, MINIMUM_FEATURE_SPACING * bpPerPixel);
             int maxFeatureLength = packedFeatures.getMaxFeatureLength();
             featureList = FeatureUtils.getAllFeaturesAt(position, maxFeatureLength, minWidth, possFeatures);
         }
@@ -688,19 +689,71 @@ public class FeatureTrack extends AbstractTrack implements IGVEventObserver {
         super.setDisplayMode(mode);
     }
 
-    public void load(ReferenceFrame frame) {
-        PackedFeatures packedFeatures = packedFeaturesMap.get(frame.getName());
-        String chr = frame.getChrName();
-        int start = (int) frame.getOrigin();
-        int end = (int) frame.getEnd();
-        if (packedFeatures == null || !packedFeatures.containsInterval(chr, start, end)) {
-            try {
-                frame.getEventBus().unsubscribe(FeatureTrack.this);
-            } catch (IllegalArgumentException e) {
-                //Don't care
-            }
-            loadFeatures(frame.getChrName(), (int) frame.getOrigin(), (int) frame.getEnd(), frame);
+    @Override
+    public boolean isReadyToPaint(ReferenceFrame frame) {
+        if (!isShowFeatures(frame)) {
+            return true;  // Ready by definition (nothing to paint)
+        } else {
+            PackedFeatures packedFeatures = packedFeaturesMap.get(frame.getName());
+            String chr = frame.getChrName();
+            int start = (int) frame.getOrigin();
+            int end = (int) frame.getEnd();
+            return (packedFeatures != null && packedFeatures.containsInterval(chr, start, end));
         }
+    }
+
+    public void load(ReferenceFrame frame) {
+        loadFeatures(frame.getChrName(), (int) frame.getOrigin(), (int) frame.getEnd(), frame);
+    }
+
+    /**
+     * Loads and segregates features into rows such that they do not overlap.
+     *
+     * @param chr
+     * @param start
+     * @param end
+     */
+    protected void loadFeatures(final String chr, final int start, final int end, final ReferenceFrame frame) {
+
+        try {
+
+            int delta = (end - start) / 2;
+            int expandedStart = start - delta;
+            int expandedEnd = end + delta;
+
+            //Make sure we are only querying within the chromosome we allow for somewhat pathological cases of start
+            //being negative and end being outside, but only if directly queried. Our expansion should not
+            //set start < 0 or end > chromosomeLength
+            if (start >= 0) {
+                expandedStart = Math.max(0, expandedStart);
+            }
+
+            Genome genome = GenomeManager.getInstance().getCurrentGenome();
+            if (genome != null) {
+                Chromosome c = genome.getChromosome(chr);
+                if (c != null && end < c.getLength()) expandedEnd = Math.min(c.getLength(), expandedEnd);
+            }
+
+            Iterator<Feature> iter = source.getFeatures(chr, expandedStart, expandedEnd);
+
+            if (iter == null) {
+                PackedFeatures pf = new PackedFeatures(chr, expandedStart, expandedEnd);
+                packedFeaturesMap.put(frame.getName(), pf);
+            } else {
+                PackedFeatures pf = new PackedFeatures(chr, expandedStart, expandedEnd, iter, getName());
+                packedFeaturesMap.put(frame.getName(), pf);
+                //log.info("Loaded " + chr + " " + expandedStart + "-" + expandedEnd);
+            }
+
+        } catch (Exception e) {
+            // Mark the interval with an empty feature list to prevent an endless loop of load attempts.
+            PackedFeatures pf = new PackedFeatures(chr, start, end);
+            packedFeaturesMap.put(frame.getName(), pf);
+            String msg = "Error loading features for interval: " + chr + ":" + start + "-" + end + " <br>" + e.toString();
+            MessageUtils.showMessage(msg);
+            log.error(msg, e);
+        }
+
     }
 
     @Override
@@ -710,7 +763,7 @@ public class FeatureTrack extends AbstractTrack implements IGVEventObserver {
         renderRect.height -= margin;
 
 
-        showFeatures = isShowFeatures(context);
+        showFeatures = isShowFeatures(context.getReferenceFrame());
         if (showFeatures) {
             if (lastFeatureMode != null) {
                 super.setDisplayMode(lastFeatureMode);
@@ -737,12 +790,12 @@ public class FeatureTrack extends AbstractTrack implements IGVEventObserver {
 
     }
 
-    protected boolean isShowFeatures(RenderContext context) {
+    protected boolean isShowFeatures(ReferenceFrame frame) {
 
-        if (context.getChr().equals(Globals.CHR_ALL)) {
+        if (frame.getChrName().equals(Globals.CHR_ALL)) {
             return false;
         } else {
-            double windowSize = context.getEndLocation() - context.getOrigin();
+            double windowSize = frame.getEnd() - frame.getOrigin();
             int vw = getVisibilityWindow();
             return (vw <= 0 || windowSize <= vw);
         }
@@ -799,18 +852,11 @@ public class FeatureTrack extends AbstractTrack implements IGVEventObserver {
      */
     protected void renderFeatures(RenderContext context, Rectangle inputRect) {
 
-        if (featuresLoading || fatalLoadError) {
-            return;
-        }
-
         if (log.isTraceEnabled()) {
             String msg = String.format("renderFeatures: %s frame: %s", getName(), context.getReferenceFrame().getName());
             log.trace(msg);
         }
 
-        //Attempt to load the relevant data. Note that there is no guarantee
-        //the data will be loaded once preload exits, as loading may be asynchronous
-        load(context.getReferenceFrame());
         PackedFeatures packedFeatures = packedFeaturesMap.get(context.getReferenceFrame().getName());
 
         if (packedFeatures == null || !packedFeatures.overlapsInterval(context.getChr(), (int) context.getOrigin(), (int) context.getEndLocation() + 1)) {
@@ -821,7 +867,7 @@ public class FeatureTrack extends AbstractTrack implements IGVEventObserver {
             renderFeatureImpl(context, inputRect, packedFeatures);
         } catch (TribbleException e) {
             log.error("Tribble error", e);
-            //Error loading features.  We'll let the user decide if this is "fatal" or not.  
+            //Error loading features.  We'll let the user decide if this is "fatal" or not.
             if (!fatalLoadError) {
                 fatalLoadError = true;
                 boolean unload = MessageUtils.confirm("<html> Error loading features: " + e.getMessage() +
@@ -857,7 +903,7 @@ public class FeatureTrack extends AbstractTrack implements IGVEventObserver {
                     Rectangle rect = new Rectangle(inputRect.x, inputRect.y, inputRect.width, (int) h);
                     int i = 0;
 
-                    if(renderer instanceof FeatureRenderer) ((FeatureRenderer) renderer).reset();
+                    if (renderer instanceof FeatureRenderer) ((FeatureRenderer) renderer).reset();
                     for (PackedFeatures.FeatureRow row : rows) {
                         levelRects.add(new Rectangle(rect));
                         renderer.render(row.features, context, levelRects.get(i), this);
@@ -878,96 +924,6 @@ public class FeatureTrack extends AbstractTrack implements IGVEventObserver {
         }
     }
 
-
-    /**
-     * Loads and segregates features into rows such that they do not overlap.  Loading is done in a background
-     * thread.
-     *
-     * @param chr
-     * @param start
-     * @param end
-     */
-    protected void loadFeatures(final String chr, final int start, final int end, final ReferenceFrame referenceFrame) {
-
-        boolean aSync = !forceLoadSync && !(source instanceof FeatureCollectionSource);
-
-
-        NamedRunnable runnable = new NamedRunnable() {
-            public void run() {
-                try {
-                    featuresLoading = true;
-
-                    synchronized (loadLock) {
-                        if (log.isTraceEnabled()) {
-                            log.trace(String.format("Loading features: %s:%d-%d", chr, start, end));
-                        }
-
-
-                        int delta = (end - start) / 2;
-                        int expandedStart = start - delta;
-                        int expandedEnd = end + delta;
-
-                        //Make sure we are only querying within the chromosome
-                        //we allow for somewhat pathological cases of start
-                        //being negative and end being outside, but
-                        //only if directly queried. Our expansion should not
-                        //set start < 0 or end > chromosomeLength
-                        if (start >= 0) {
-                            expandedStart = Math.max(0, expandedStart);
-                        }
-
-
-                        Genome genome = GenomeManager.getInstance().getCurrentGenome();
-                        if (genome != null) {
-                            Chromosome c = genome.getChromosome(chr);
-                            if (c != null && end < c.getLength()) expandedEnd = Math.min(c.getLength(), expandedEnd);
-                        }
-
-                        Iterator<Feature> iter = source.getFeatures(chr, expandedStart, expandedEnd);
-                        if (iter == null) {
-                            PackedFeatures pf = new PackedFeatures(chr, expandedStart, expandedEnd);
-                            packedFeaturesMap.put(referenceFrame.getName(), pf);
-                        } else {
-                            //dhmay putting a switch in for different packing behavior in splice junction tracks.
-                            //This should probably be switched somewhere else, but that would require a big refactor.
-                            PackedFeatures pf = new PackedFeatures(chr, expandedStart, expandedEnd, iter, getName());
-                            packedFeaturesMap.put(referenceFrame.getName(), pf);
-                        }
-                    }
-
-                    //Now that features are loaded, we may need to repaint
-                    //to accommodate.
-                    referenceFrame.getEventBus().post(new DataLoadedEvent(referenceFrame));
-                } catch (Exception e) {
-                    // Mark the interval with an empty feature list to prevent an endless loop of load
-                    // attempts.
-                    PackedFeatures pf = new PackedFeatures(chr, start, end);
-                    packedFeaturesMap.put(referenceFrame.getName(), pf);
-                    String msg = "Error loading features for interval: " + chr + ":" + start + "-" + end + " <br>" + e.toString();
-                    MessageUtils.showMessage(msg);
-                    log.error(msg, e);
-                } finally {
-                    featuresLoading = false;
-                }
-            }
-
-            public String getName() {
-                return "Load features: " + FeatureTrack.this.getName();
-            }
-        };
-
-        if (aSync) {
-            referenceFrame.getEventBus().subscribe(DataLoadedEvent.class, FeatureTrack.this);
-            LongRunningTask.submit(runnable);
-        } else {
-            runnable.run();
-        }
-
-    }
-
-    public void setForceLoadSync(boolean forceLoadSync) {
-        this.forceLoadSync = forceLoadSync;
-    }
 
 
     /**

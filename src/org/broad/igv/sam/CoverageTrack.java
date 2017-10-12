@@ -31,12 +31,14 @@ package org.broad.igv.sam;
 
 import org.apache.log4j.Logger;
 import org.broad.igv.Globals;
-import org.broad.igv.PreferenceManager;
 import org.broad.igv.data.CoverageDataSource;
+import org.broad.igv.event.IGVEventBus;
 import org.broad.igv.feature.FeatureUtils;
 import org.broad.igv.feature.LocusScore;
 import org.broad.igv.feature.genome.Genome;
 import org.broad.igv.goby.GobyCountArchiveDataSource;
+import org.broad.igv.prefs.IGVPreferences;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.renderer.BarChartRenderer;
 import org.broad.igv.renderer.DataRange;
 import org.broad.igv.renderer.DataRenderer;
@@ -49,7 +51,7 @@ import org.broad.igv.track.*;
 import org.broad.igv.ui.DataRangeDialog;
 import org.broad.igv.ui.IGV;
 import org.broad.igv.ui.color.ColorUtilities;
-import org.broad.igv.ui.event.AlignmentTrackEvent;
+import org.broad.igv.event.AlignmentTrackEvent;
 import org.broad.igv.ui.panel.FrameManager;
 import org.broad.igv.ui.panel.IGVPopupMenu;
 import org.broad.igv.ui.panel.ReferenceFrame;
@@ -70,6 +72,8 @@ import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+
+import static org.broad.igv.prefs.Constants.*;
 
 /**
  * @author jrobinso
@@ -103,7 +107,7 @@ public class CoverageTrack extends AbstractTrack implements ScalableTrack {
     private CoverageDataSource dataSource;
     private DataRenderer dataSourceRenderer;
     private IntervalRenderer intervalRenderer;
-    private PreferenceManager prefs;
+    private IGVPreferences prefs;
     private JMenuItem dataRangeItem;
     private Genome genome;
     private boolean removed = false;
@@ -131,6 +135,9 @@ public class CoverageTrack extends AbstractTrack implements ScalableTrack {
         this(track.getResourceLocator(), track.getName(), track.alignmentTrack, track.genome);
         if (track.dataManager != null) this.setDataManager(track.dataManager);
         if (track.dataSource != null) this.setDataSource(track.dataSource);
+        this.snpThreshold = track.snpThreshold;
+        this.prefs = track.prefs;
+        this.renderOptions = track.renderOptions;
     }
 
     public CoverageTrack(ResourceLocator locator, String name, AlignmentTrack alignmentTrack, Genome genome) {
@@ -143,8 +150,8 @@ public class CoverageTrack extends AbstractTrack implements ScalableTrack {
 
         setColor(coverageGrey);
 
-        prefs = PreferenceManager.getInstance();
-        snpThreshold = prefs.getAsFloat(PreferenceManager.SAM_ALLELE_THRESHOLD);
+        prefs = PreferencesManager.getPreferences();
+        snpThreshold = prefs.getAsFloat(SAM_ALLELE_THRESHOLD);
         autoScale = DEFAULT_AUTOSCALE;
         showReference = DEFAULT_SHOW_REFERENCE;
         //TODO  logScale = prefs.
@@ -154,6 +161,7 @@ public class CoverageTrack extends AbstractTrack implements ScalableTrack {
 
     public void setDataManager(AlignmentDataManager dataManager) {
         this.dataManager = dataManager;
+        this.dataManager.subscribe(this);
     }
 
     public void setDataSource(CoverageDataSource dataSource) {
@@ -162,6 +170,23 @@ public class CoverageTrack extends AbstractTrack implements ScalableTrack {
         setDataRange(new DataRange(0, 0, 1.5f * (float) dataSource.getDataMax()));
 
     }
+
+    @Override
+    public boolean isReadyToPaint(ReferenceFrame frame) {
+
+        if (frame.getChrName().equals(Globals.CHR_ALL) ||  frame.getScale() > dataManager.getMinVisibleScale()) {
+            return true;   // Nothing to paint
+     }
+        else {
+            return dataManager.isLoaded(frame);
+        }
+    }
+
+    @Override
+    public void load(ReferenceFrame referenceFrame) {
+        dataManager.load(referenceFrame, renderOptions, true);
+    }
+
 
     public void setSnpThreshold(float snpThreshold) {
         this.snpThreshold = snpThreshold;
@@ -192,6 +217,9 @@ public class CoverageTrack extends AbstractTrack implements ScalableTrack {
     public void dispose() {
         super.dispose();
         removed = true;
+        if(dataManager != null) {
+            dataManager.unsubscribe(this);
+        }
         dataManager = null;
         dataSource = null;
         alignmentTrack = null;
@@ -223,7 +251,7 @@ public class CoverageTrack extends AbstractTrack implements ScalableTrack {
 
     public void drawData(RenderContext context, Rectangle rect) {
 
-        float maxRange = PreferenceManager.getInstance().getAsFloat(PreferenceManager.SAM_MAX_VISIBLE_RANGE);
+        float maxRange = PreferencesManager.getPreferences().getAsFloat(SAM_MAX_VISIBLE_RANGE);
         float minVisibleScale = (maxRange * 1000) / 700;
 
         if (context.getScale() < minVisibleScale && !context.getChr().equals(Globals.CHR_ALL)) {
@@ -231,7 +259,7 @@ public class CoverageTrack extends AbstractTrack implements ScalableTrack {
             AlignmentInterval interval = null;
             if (dataManager != null) {
                 dataManager.load(context.getReferenceFrame(), renderOptions, true);
-                interval = dataManager.getLoadedInterval(context.getReferenceFrame().getCurrentRange());
+                interval = dataManager.getLoadedInterval(context.getReferenceFrame());
             }
             if (interval != null) {
                 if (interval.contains(context.getChr(), (int) context.getOrigin(), (int) context.getEndLocation())) {
@@ -310,7 +338,7 @@ public class CoverageTrack extends AbstractTrack implements ScalableTrack {
 
         } else {
 
-            AlignmentInterval interval = dataManager.getLoadedInterval(frame.getCurrentRange());
+            AlignmentInterval interval = dataManager.getLoadedInterval(frame);
             if (interval == null) return null;
 
             int origin = (int) frame.getOrigin();
@@ -346,7 +374,7 @@ public class CoverageTrack extends AbstractTrack implements ScalableTrack {
 
     public String getValueStringAt(String chr, double position, int mouseX, int mouseY, ReferenceFrame frame) {
 
-        float maxRange = PreferenceManager.getInstance().getAsFloat(PreferenceManager.SAM_MAX_VISIBLE_RANGE);
+        float maxRange = PreferencesManager.getPreferences().getAsFloat(SAM_MAX_VISIBLE_RANGE);
         float minVisibleScale = (maxRange * 1000) / 700;
 
         StringBuffer buf = new StringBuffer();
@@ -358,7 +386,7 @@ public class CoverageTrack extends AbstractTrack implements ScalableTrack {
         }
 
         if (frame.getScale() < minVisibleScale) {
-            AlignmentInterval interval = dataManager.getLoadedInterval(frame.getCurrentRange());
+            AlignmentInterval interval = dataManager.getLoadedInterval(frame);
             if (interval != null && interval.contains(chr, (int) position, (int) position)) {
                 AlignmentCounts counts = interval.getCounts();
                 if (counts != null) {
@@ -406,7 +434,7 @@ public class CoverageTrack extends AbstractTrack implements ScalableTrack {
 
             int max = 10;
             for (ReferenceFrame frame : frameList) {
-                AlignmentInterval interval = dataManager.getLoadedInterval(frame.getCurrentRange());
+                AlignmentInterval interval = dataManager.getLoadedInterval(frame);
                 if (interval == null) continue;
 
                 int origin = (int) frame.getOrigin();
@@ -448,7 +476,7 @@ public class CoverageTrack extends AbstractTrack implements ScalableTrack {
             final double colorScaleMax = getColorScale().getMaximum();
             final double scale = context.getScale();
 
-            boolean bisulfiteMode = dataManager.getExperimentType() == AlignmentTrack.ExperimentType.BISULFITE;
+            boolean bisulfiteMode = getRenderOptions().getColorOption() == AlignmentTrack.ColorOption.BISULFITE;
 
 
             // First pass, coverage
@@ -742,12 +770,12 @@ public class CoverageTrack extends AbstractTrack implements ScalableTrack {
 
     private Color getShadedColor(int qual, Color backgroundColor, Color color) {
         float alpha = 0;
-        int minQ = prefs.getAsInt(PreferenceManager.SAM_BASE_QUALITY_MIN);
+        int minQ = prefs.getAsInt(SAM_BASE_QUALITY_MIN);
         ColorUtilities.getRGBColorComponents(color);
         if (qual < minQ) {
             alpha = 0.1f;
         } else {
-            int maxQ = prefs.getAsInt(PreferenceManager.SAM_BASE_QUALITY_MAX);
+            int maxQ = prefs.getAsInt(SAM_BASE_QUALITY_MAX);
             alpha = Math.max(0.1f, Math.min(1.0f, 0.1f + 0.9f * (qual - minQ) / (maxQ - minQ)));
         }
         // Round alpha to nearest 0.1, for effeciency;
@@ -858,7 +886,7 @@ public class CoverageTrack extends AbstractTrack implements ScalableTrack {
                 try {
                     float tmp = Float.parseFloat(value);
                     snpThreshold = tmp;
-                    IGV.getInstance().repaintDataPanels();
+                    IGV.getInstance().revalidateTrackPanels();
                 } catch (Exception exc) {
                     //log
                 }
@@ -879,10 +907,7 @@ public class CoverageTrack extends AbstractTrack implements ScalableTrack {
             alignmentItem.addActionListener(new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    alignmentTrack.onAlignmentTrackEvent(new AlignmentTrackEvent(CoverageTrack.this, AlignmentTrackEvent.Type.VISIBLE, alignmentItem.isSelected()));
-                    if (alignmentItem.isSelected()) {
-                        alignmentTrack.onAlignmentTrackEvent(new AlignmentTrackEvent(CoverageTrack.this, AlignmentTrackEvent.Type.RELOAD));
-                    }
+                    alignmentTrack.setVisible(alignmentItem.isSelected());
                 }
             });
             menu.add(alignmentItem);
@@ -895,15 +920,14 @@ public class CoverageTrack extends AbstractTrack implements ScalableTrack {
                 junctionItem.addActionListener(new ActionListener() {
                     @Override
                     public void actionPerformed(ActionEvent e) {
-                        alignmentTrack.onAlignmentTrackEvent(new AlignmentTrackEvent(CoverageTrack.this, AlignmentTrackEvent.Type.SPLICE_JUNCTION, junctionItem.isSelected()));
-                        IGV.getInstance().getMainPanel().revalidate();
+                        spliceJunctionTrack.setVisible(junctionItem.isSelected());
                     }
                 });
 
                 menu.add(junctionItem);
             }
 
-            final JMenuItem coverageItem = new JMenuItem("Hide Track");
+            final JMenuItem coverageItem = new JMenuItem("Hide Coverage Track");
             coverageItem.setEnabled(!isRemoved());
             coverageItem.addActionListener(new ActionListener() {
                 @Override
@@ -912,7 +936,7 @@ public class CoverageTrack extends AbstractTrack implements ScalableTrack {
 
                         public void run() {
                             setVisible(false);
-                            IGV.getInstance().getMainPanel().revalidate();
+                            if(IGV.hasInstance()) IGV.getInstance().getMainPanel().revalidate();
 
                         }
                     });
@@ -930,7 +954,7 @@ public class CoverageTrack extends AbstractTrack implements ScalableTrack {
 
             public void actionPerformed(ActionEvent e) {
 
-                final PreferenceManager prefs = PreferenceManager.getInstance();
+                final IGVPreferences prefs = PreferencesManager.getPreferences();
                 File initDirectory = prefs.getLastTrackDirectory();
                 File file = FileDialogUtils.chooseFile("Select coverage file", initDirectory, FileDialog.LOAD);
                 if (file != null) {
@@ -940,11 +964,11 @@ public class CoverageTrack extends AbstractTrack implements ScalableTrack {
                         TDFReader reader = TDFReader.getReader(file.getAbsolutePath());
                         TDFDataSource ds = new TDFDataSource(reader, 0, getName() + " coverage", genome);
                         setDataSource(ds);
-                        IGV.getInstance().repaintDataPanels();
+                        IGV.getInstance().revalidateTrackPanels();
                     } else if (path.endsWith(".counts")) {
                         CoverageDataSource ds = new GobyCountArchiveDataSource(file);
                         setDataSource(ds);
-                        IGV.getInstance().repaintDataPanels();
+                        IGV.getInstance().revalidateTrackPanels();
                     } else {
                         MessageUtils.showMessage("Coverage data must be in .tdf format");
                     }

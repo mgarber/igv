@@ -29,49 +29,127 @@ package org.broad.igv.sam.cram;
 
 import htsjdk.samtools.SAMSequenceRecord;
 import htsjdk.samtools.cram.ref.CRAMReferenceSource;
-import htsjdk.samtools.cram.ref.ReferenceSource;
+import org.apache.log4j.Logger;
 import org.broad.igv.feature.Chromosome;
+import org.broad.igv.feature.genome.Genome;
 import org.broad.igv.feature.genome.GenomeManager;
+import org.broad.igv.prefs.Constants;
+import org.broad.igv.prefs.PreferencesManager;
+import org.broad.igv.ui.IGV;
+import org.broad.igv.event.GenomeChangeEvent;
+import org.broad.igv.event.IGVEventBus;
+import org.broad.igv.event.IGVEventObserver;
 import org.broad.igv.util.ObjectCache;
+
+import java.io.IOException;
 
 /**
  * Provide a reference sequence for CRAM decompression.  Note the rule for MD5 calculation.
- *
+ * <p>
  * M5 (sequence MD5 checksum) field of @SQ sequence record in the BAM header is required and UR (URI
- for the sequence fasta optionally gzipped file) field is strongly advised. The rule for calculating MD5 is
- to remove any non-base symbols (like \n, sequence name or length and spaces) and upper case the rest.
+ * for the sequence fasta optionally gzipped file) field is strongly advised. The rule for calculating MD5 is
+ * to remove any non-base symbols (like \n, sequence name or length and spaces) and upper case the rest.
  */
 
 public class IGVReferenceSource implements CRAMReferenceSource {
 
-    ObjectCache<String, byte[]> cachedSequences = new ObjectCache<String, byte[]>(2);
+    private static Logger log = Logger.getLogger(IGVReferenceSource.class);
+
+    static ObjectCache<String, byte[]> cachedSequences = new ObjectCache<String, byte[]>(2);
+
+    static GenomeChangeListener genomeChangeListener;
 
     @Override
+
     public synchronized byte[] getReferenceBases(SAMSequenceRecord record, boolean tryNameVariants) {
+
 
         final String name = record.getSequenceName();
 
-        String igvName = GenomeManager.getInstance().getCurrentGenome().getCanonicalChrName(name);
+        final Genome currentGenome = GenomeManager.getInstance().getCurrentGenome();
+        String chrName = currentGenome.getCanonicalChrName(name);
+        Chromosome chromosome = currentGenome.getChromosome(chrName);
 
-        byte[] bases = cachedSequences.get(igvName);
+        byte[] bases = cachedSequences.get(chrName);
 
         if (bases == null) {
 
-            Chromosome chromosome = GenomeManager.getInstance().getCurrentGenome().getChromosome(igvName);
+            try {
 
-            bases = GenomeManager.getInstance().getCurrentGenome().getSequence(igvName, 0, chromosome.getLength());
+                final boolean cacheOnDisk = currentGenome.sequenceIsRemote() &&
+                        PreferencesManager.getPreferences().getAsBoolean(Constants.CRAM_CACHE_SEQUENCES);
 
-            // CRAM spec requires upper case
-            for(int i=0; i<bases.length; i++) {
-                if(bases[i] >= 97) bases[i] -= 32;
+                if (cacheOnDisk) {
+                    bases = readBasesFromCache(currentGenome, chrName);
+                    if (bases != null) {
+                        if (bases.length != chromosome.getLength()) {
+                            log.error("CRAM reference cache mismatch");
+                            ReferenceDiskCache.deleteCache(currentGenome.getId(), chrName);
+                            bases = null;
+                        }
+                    }
+                }
+
+                if (bases == null) {
+
+                    if (IGV.hasInstance()) IGV.getInstance().setStatusBarMessage("Loading sequence");
+
+
+                    bases = currentGenome.getSequence(chrName, 0, chromosome.getLength(), false);
+
+                    // CRAM spec requires upper case
+                    for (int i = 0; i < bases.length; i++) {
+                        if (bases[i] >= 97) bases[i] -= 32;
+                    }
+
+                    if (cacheOnDisk) {
+                        saveBasesToCache(currentGenome, chrName, bases);
+                    }
+                }
+
+                cachedSequences.put(chrName, bases);
+            } finally {
+                if (IGV.hasInstance()) IGV.getInstance().setStatusBarMessage("");
             }
-
-            cachedSequences.put(igvName, bases);
         }
 
         return bases;
 
-
-
     }
+
+    private void saveBasesToCache(Genome currentGenome, String chrName, byte[] bases) {
+        try {
+            ReferenceDiskCache.saveSequence(currentGenome.getId(), chrName, bases);
+        } catch (IOException e) {
+            log.error("Error saving cached sequence ", e);
+        }
+    }
+
+    private byte[] readBasesFromCache(Genome currentGenome, String chrName) {
+
+
+        try {
+            return ReferenceDiskCache.readSequence(currentGenome.getId(), chrName);
+        } catch (IOException e) {
+            log.error("Error reading cached sequence ", e);
+            return null;
+        }
+    }
+
+    public static class GenomeChangeListener implements IGVEventObserver {
+
+        @Override
+        public void receiveEvent(Object event) {
+            cachedSequences.clear();
+        }
+    }
+
+    static {
+
+        genomeChangeListener = new GenomeChangeListener();
+
+        IGVEventBus.getInstance().subscribe(GenomeChangeEvent.class, genomeChangeListener);
+    }
+
+
 }

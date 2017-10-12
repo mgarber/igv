@@ -26,11 +26,13 @@
 package org.broad.igv.data;
 
 import org.broad.igv.AbstractHeadlessTest;
-import org.broad.igv.PreferenceManager;
+import org.broad.igv.Globals;
 import org.broad.igv.feature.FeatureDB;
 import org.broad.igv.feature.genome.Genome;
 import org.broad.igv.feature.genome.GenomeListItem;
+import org.broad.igv.ui.commandbar.GenomeListManager;
 import org.broad.igv.feature.genome.GenomeManager;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.track.TrackLoader;
 import org.broad.igv.ui.ResourceTree;
 import org.broad.igv.ui.action.LoadFromServerAction;
@@ -82,7 +84,7 @@ public class HostedDataTest extends AbstractHeadlessTest {
         String outPath = TestUtils.DATA_DIR + "failed_loaded_files_" + dateFormat.format(date) + ".txt";
         errorWriter = new PrintStream(outPath);
 
-        List<GenomeListItem> serverSideGenomeList = getServerGenomes();
+        Collection<GenomeListItem> serverSideGenomeList = getServerGenomes();
 
 
         Map<ResourceLocator, Exception> failedFiles = new LinkedHashMap<ResourceLocator, Exception>(10);
@@ -107,9 +109,9 @@ public class HostedDataTest extends AbstractHeadlessTest {
             TrackLoader loader = new TrackLoader();
             Genome curGenome = null;
             try {
-                curGenome = GenomeManager.getInstance().loadGenome(genomeItem.getLocation(), null);
-            } catch (IOException e) {
-                recordError(new ResourceLocator(genomeItem.getLocation()), e, failedFiles);
+                curGenome = GenomeManager.getInstance().loadGenome(genomeItem.getPath(), null);
+            } catch (Exception e) {
+                recordError(new ResourceLocator(genomeItem.getPath()), e, failedFiles);
                 continue;
             }
 
@@ -227,10 +229,10 @@ public class HostedDataTest extends AbstractHeadlessTest {
         errorWriter.flush();
     }
 
-    private List<GenomeListItem> getServerGenomes() throws IOException {
-        String genomeListPath = PreferenceManager.DEFAULT_GENOME_URL;
-        PreferenceManager.getInstance().overrideGenomeServerURL(genomeListPath);
-        List<GenomeListItem> serverSideItemList = GenomeManager.getInstance().getServerGenomeArchiveList(null);
+    private Collection<GenomeListItem> getServerGenomes() throws IOException {
+        String genomeListPath = Globals.DEFAULT_GENOME_URL;
+        PreferencesManager.getPreferences().overrideGenomeServerURL(genomeListPath);
+        Collection<GenomeListItem> serverSideItemList = GenomeListManager.getInstance().getServerGenomeList();
         assertNotNull("Could not retrieve genome list from server", serverSideItemList);
         assertTrue("Genome list empty", serverSideItemList.size() > 0);
         return serverSideItemList;
@@ -241,7 +243,7 @@ public class HostedDataTest extends AbstractHeadlessTest {
     @Test
     public void testLoadServerGenomes() throws Exception {
 
-        List<GenomeListItem> serverSideItemList = getServerGenomes();
+        Collection<GenomeListItem> serverSideItemList = getServerGenomes();
 
         Map<GenomeListItem, Exception> failedGenomes = new LinkedHashMap<GenomeListItem, Exception>(10);
 
@@ -249,7 +251,7 @@ public class HostedDataTest extends AbstractHeadlessTest {
         for (GenomeListItem genome : serverSideItemList) {
             try {
                 count++;
-                tstLoadGenome(genome.getLocation());
+                tstLoadGenome(genome.getPath());
                 Runtime.getRuntime().gc();
             } catch (Exception e) {
                 failedGenomes.put(genome, e);
@@ -260,7 +262,7 @@ public class HostedDataTest extends AbstractHeadlessTest {
         for (Map.Entry<GenomeListItem, Exception> entry : failedGenomes.entrySet()) {
             GenomeListItem item = entry.getKey();
             System.out.println(String.format("Exception loading (%s\t%s\t%s): %s", item.getDisplayableName(),
-                    item.getLocation(), item.getId(), entry.getValue()));
+                    item.getPath(), item.getId(), entry.getValue()));
         }
 
         assertEquals(0, failedGenomes.size());

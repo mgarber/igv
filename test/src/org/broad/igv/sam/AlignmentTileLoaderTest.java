@@ -30,7 +30,8 @@
 package org.broad.igv.sam;
 
 import org.broad.igv.AbstractHeadlessTest;
-import org.broad.igv.PreferenceManager;
+import org.broad.igv.prefs.Constants;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.sam.reader.AlignmentReader;
 import org.broad.igv.sam.reader.AlignmentReaderFactory;
 import org.broad.igv.util.ResourceLocator;
@@ -91,8 +92,8 @@ public class AlignmentTileLoaderTest extends AbstractHeadlessTest {
     private AlignmentTileLoader.AlignmentTile tstKeepPairsDownsample(String path, String sequence, int start, int end, int maxDepth) throws Exception{
 
 
-        String oldMaxVis = PreferenceManager.getInstance().get(PreferenceManager.SAM_MAX_VISIBLE_RANGE);
-        PreferenceManager.getInstance().put(PreferenceManager.SAM_MAX_VISIBLE_RANGE, "" + (end - start));
+        String oldMaxVis = PreferencesManager.getPreferences().get(Constants.SAM_MAX_VISIBLE_RANGE);
+        PreferencesManager.getPreferences().put(Constants.SAM_MAX_VISIBLE_RANGE, "" + (end - start));
 
         int actMaxDepth = 100;
         if(maxDepth > 0){
@@ -106,7 +107,7 @@ public class AlignmentTileLoaderTest extends AbstractHeadlessTest {
 
             AlignmentDataManager.DownsampleOptions downsampleOptions = new AlignmentDataManager.DownsampleOptions(true, 50, actMaxDepth);
 
-            AlignmentTileLoader.AlignmentTile tile = loader.loadTile(sequence, start, end, null, downsampleOptions, null, null, null, true, null);
+            AlignmentTileLoader.AlignmentTile tile = loader.loadTile(sequence, start, end, null, downsampleOptions, null, null, null, true);
             List<Alignment> alignments = tile.getAlignments();
             int count = 0;
             Map<String, Integer> pairedReads = new HashMap<String, Integer>();
@@ -150,7 +151,7 @@ public class AlignmentTileLoaderTest extends AbstractHeadlessTest {
         } catch (Exception e) {
             throw e;
         }finally{
-            PreferenceManager.getInstance().put(PreferenceManager.SAM_MAX_VISIBLE_RANGE, oldMaxVis);
+            PreferencesManager.getPreferences().put(Constants.SAM_MAX_VISIBLE_RANGE, oldMaxVis);
         }
 
     }

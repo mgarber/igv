@@ -26,6 +26,7 @@
 package org.broad.igv.feature.genome;
 
 import org.broad.igv.AbstractHeadlessTest;
+import org.broad.igv.feature.genome.fasta.FastaIndex;
 import org.broad.igv.util.TestUtils;
 import org.junit.Assume;
 import org.junit.Rule;
@@ -80,7 +81,7 @@ public class GenomeTest extends AbstractHeadlessTest {
         Genome genome = null;
         try {
             genome = GenomeManager.getInstance().loadGenome(genomeURL, null);
-        } catch (IOException e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
         Assume.assumeNotNull(genome);
@@ -142,7 +143,7 @@ public class GenomeTest extends AbstractHeadlessTest {
         }
 
         @Override
-        public byte[] getSequence(String chr, int start, int end) {
+        public byte[] getSequence(String chr, int start, int end, boolean useCache) {
             return new byte[0];
         }
 
@@ -159,6 +160,11 @@ public class GenomeTest extends AbstractHeadlessTest {
         @Override
         public int getChromosomeLength(String chrname) {
             return index.getSequenceSize(chrname);
+        }
+
+        @Override
+        public boolean isRemote() {
+            return false;
         }
     }
 

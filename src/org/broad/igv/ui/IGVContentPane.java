@@ -26,6 +26,7 @@
 package org.broad.igv.ui;
 
 import org.apache.log4j.Logger;
+import org.broad.igv.ui.commandbar.IGVCommandBar;
 import org.broad.igv.ui.panel.MainPanel;
 import org.broad.igv.ui.panel.TrackPanel;
 import org.broad.igv.ui.util.ApplicationStatusBar;
@@ -83,7 +84,6 @@ public class IGVContentPane extends JPanel {
         statusBar.setDebugGraphicsOptions(javax.swing.DebugGraphics.NONE_OPTION);
         add(statusBar, BorderLayout.SOUTH);
 
-
     }
 
     public void addCommandBar(JComponent component) {
@@ -93,35 +93,16 @@ public class IGVContentPane extends JPanel {
         commandBarPanel.invalidate();
     }
 
-    public void removeCommandBar(JComponent component) {
-        commandBarPanel.remove(component);
-        commandBarPanel.invalidate();
-    }
 
     @Override
     public Dimension getPreferredSize() {
         return UIConstants.preferredSize;
     }
 
-
-    public void repaintDataPanels() {
-        for (TrackPanel tp : mainPanel.getTrackPanels()) {
-            tp.getScrollPane().getDataPanel().repaint();
-        }
-    }
-
-    public void revalidateDataPanels() {
+    public void revalidateTrackPanels() {
         for (TrackPanel tp : mainPanel.getTrackPanels()) {
             tp.getScrollPane().getDataPanel().revalidate();
         }
-    }
-
-
-    final public void doRefresh() {
-
-        mainPanel.revalidate();
-        repaint();
-        //getContentPane().repaint();
     }
 
     /**
@@ -140,13 +121,6 @@ public class IGVContentPane extends JPanel {
         return igvCommandBar;
     }
 
-    public void chromosomeChanged(String chrName) {
-        igvCommandBar.chromosomeChanged(chrName);
-    }
-
-    public void updateCurrentCoordinates() {
-        igvCommandBar.updateCurrentCoordinates();
-    }
 
     public ApplicationStatusBar getStatusBar() {
 

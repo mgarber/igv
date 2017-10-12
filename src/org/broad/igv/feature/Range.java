@@ -40,8 +40,8 @@ import org.broad.igv.util.Utilities;
  */
 public class Range implements Feature {
 
-    protected String chr = null;
-    protected int start = -1;
+    public String chr = null;
+    public int start = -1;
     protected int end = -1;
 
     public Range(String chr, int start, int end){
@@ -107,4 +107,11 @@ public class Range implements Feature {
         return this.overlaps(range.getChr(), range.getStart(), range.getEnd());
     }
 
+    public boolean contains(Range range) {
+        return this.contains(range.chr, range.start, range.end);
+    }
+
+    public String printString() {
+        return this.chr + ":" + this.start + "-" + this.end;
+    }
 }

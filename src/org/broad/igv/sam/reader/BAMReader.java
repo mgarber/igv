@@ -30,6 +30,7 @@ import htsjdk.samtools.seekablestream.SeekableStream;
 import htsjdk.samtools.util.CloseableIterator;
 import org.apache.log4j.Logger;
 import org.broad.igv.exceptions.DataLoadException;
+import org.broad.igv.sam.EmptyAlignmentIterator;
 import org.broad.igv.sam.PicardAlignment;
 import org.broad.igv.sam.cram.IGVReferenceSource;
 import org.broad.igv.ui.util.MessageUtils;
@@ -90,9 +91,9 @@ public class BAMReader implements AlignmentReader<PicardAlignment> {
         } else {
             URL url = new URL(locator.getPath());
             if (requireIndex) {
-                resource = SamInputResource.of(new IGVSeekableBufferedStream(IGVSeekableStreamFactory.getInstance().getStreamFor(url), 128000));
+                resource = SamInputResource.of(IGVSeekableStreamFactory.getInstance().getStreamFor(url));
             } else {
-                resource = SamInputResource.of(HttpUtils.getInstance().openConnectionStream(url));
+                resource = SamInputResource.of(new BufferedInputStream(HttpUtils.getInstance().openConnectionStream(url)));
             }
         }
 
@@ -157,13 +158,20 @@ public class BAMReader implements AlignmentReader<PicardAlignment> {
         return sequenceNames;
     }
 
-
     public CloseableIterator<PicardAlignment> iterator() {
         return new WrappedIterator(reader.iterator());
     }
 
     public CloseableIterator<PicardAlignment> query(String sequence, int start, int end, boolean contained) {
-        CloseableIterator<SAMRecord> iter = reader.query(sequence, start + 1, end, contained);
+        CloseableIterator<SAMRecord> iter = null;
+        try {
+            synchronized (reader) {
+                iter = reader.query(sequence, start + 1, end, contained);
+            }
+        } catch (IllegalArgumentException e) {
+            log.error("Error querying for sequence: " + sequence, e);
+            return new EmptyAlignmentIterator();
+        }
         return new WrappedIterator(iter);
     }
 
@@ -227,11 +235,16 @@ public class BAMReader implements AlignmentReader<PicardAlignment> {
             }
 
             // Try cram
-            if(pathOrURL.endsWith(".cram")) {
+            if (pathOrURL.endsWith(".cram")) {
                 indexPath = getIndexURL(pathOrURL, ".crai");
                 if (FileUtils.resourceExists(indexPath)) {
                     pathsTried.add(indexPath);
                     return indexPath;
+                } else {
+                    indexPath = pathOrURL.substring(0, pathOrURL.length() - 5) + ".crai";
+                    if (FileUtils.resourceExists(indexPath)) {
+                        return indexPath;
+                    }
                 }
             }
 
@@ -248,6 +261,11 @@ public class BAMReader implements AlignmentReader<PicardAlignment> {
                 indexPath = pathOrURL + ".crai";
                 if (FileUtils.resourceExists(indexPath)) {
                     return indexPath;
+                } else {
+                    indexPath = pathOrURL.substring(0, pathOrURL.length() - 5) + ".crai";
+                    if (FileUtils.resourceExists(indexPath)) {
+                        return indexPath;
+                    }
                 }
             }
 

@@ -32,19 +32,22 @@ import htsjdk.samtools.util.ftp.FTPStream;
 import org.apache.log4j.Logger;
 import org.apache.tomcat.util.HttpDate;
 import org.broad.igv.Globals;
-import org.broad.igv.PreferenceManager;
 import org.broad.igv.exceptions.HttpResponseException;
 import org.broad.igv.ga4gh.OAuthUtils;
 import org.broad.igv.gs.GSUtils;
+import org.broad.igv.prefs.IGVPreferences;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.ui.IGV;
-import org.broad.igv.ui.util.CancellableProgressDialog;
-import org.broad.igv.ui.util.ProgressMonitor;
+import org.broad.igv.ui.util.MessageUtils;
 import org.broad.igv.util.collections.CI;
 import org.broad.igv.util.ftp.FTPUtils;
-import org.broad.igv.util.stream.IGVSeekableHTTPStream;
 import org.broad.igv.util.stream.IGVUrlHelper;
 
-import javax.net.ssl.*;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
+import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -55,6 +58,9 @@ import java.security.NoSuchAlgorithmException;
 import java.util.*;
 import java.util.List;
 import java.util.regex.Pattern;
+
+import static org.broad.igv.prefs.Constants.*;
+import static org.broad.igv.util.stream.SeekableServiceStream.WEBSERVICE_URL;
 
 /**
  * Wrapper utility class... for interacting with HttpURLConnection.
@@ -111,8 +117,7 @@ public class HttpUtils {
     }
 
     public static boolean isRemoteURL(String string) {
-        String lcString = string.toLowerCase();
-        return lcString.startsWith("http://") || lcString.startsWith("https://") || lcString.startsWith("ftp://");
+        return FileUtils.isRemote(string);
     }
 
     /**
@@ -133,7 +138,7 @@ public class HttpUtils {
      * @throws IOException
      */
     public String getContentsAsString(URL url) throws IOException {
-       return getContentsAsString(url, null);
+        return getContentsAsString(url, null);
     }
 
 
@@ -149,7 +154,8 @@ public class HttpUtils {
             throw e;
         } finally {
             if (is != null) is.close();
-        }    }
+        }
+    }
 
 
     public String getContentsAsJSON(URL url) throws IOException {
@@ -325,12 +331,10 @@ public class HttpUtils {
      *
      * @param file
      * @param url
-     * @param compareContentLength Whether to use the content length to compare files. If false, only
-     *                             the modified date is used
      * @return true if the files are the same or the local file is newer, false if the remote file has been modified wrt the local one.
      * @throws IOException
      */
-    public boolean remoteIsNewer(File file, URL url, boolean compareContentLength) throws IOException {
+    public boolean remoteIsNewer(File file, URL url) throws IOException {
 
         if (!file.exists()) {
             return false;
@@ -338,26 +342,10 @@ public class HttpUtils {
 
         HttpURLConnection conn = openConnection(url, null, "HEAD");
 
-        // Check content-length first
-        long contentLength = -1;
-        String contentLengthString = conn.getHeaderField("Content-Length");
-        if (contentLengthString != null) {
-            try {
-                contentLength = Long.parseLong(contentLengthString);
-            } catch (NumberFormatException e) {
-                log.error("Error parsing content-length string: " + contentLengthString + " from URL: "
-                        + url.toString());
-                contentLength = -1;
-            }
-        }
-        if (contentLength != file.length()) {
-            return true;
-        }
-
         // Compare last-modified dates
         String lastModifiedString = conn.getHeaderField("Last-Modified");
         if (lastModifiedString == null) {
-            return false;
+            return true;                    // Assume its changed
         } else {
             HttpDate date = new HttpDate();
             date.parse(lastModifiedString);
@@ -378,25 +366,25 @@ public class HttpUtils {
         String user = null;
         String pw = null;
 
-        PreferenceManager prefMgr = PreferenceManager.getInstance();
-        useProxy = prefMgr.getAsBoolean(PreferenceManager.USE_PROXY);
-        proxyHost = prefMgr.get(PreferenceManager.PROXY_HOST, null);
+        IGVPreferences prefMgr = PreferencesManager.getPreferences();
+        useProxy = prefMgr.getAsBoolean(USE_PROXY);
+        proxyHost = prefMgr.get(PROXY_HOST, null);
         try {
-            proxyPort = Integer.parseInt(prefMgr.get(PreferenceManager.PROXY_PORT, "-1"));
+            proxyPort = Integer.parseInt(prefMgr.get(PROXY_PORT, "-1"));
         } catch (NumberFormatException e) {
             proxyPort = -1;
         }
-        auth = prefMgr.getAsBoolean(PreferenceManager.PROXY_AUTHENTICATE);
-        user = prefMgr.get(PreferenceManager.PROXY_USER, null);
-        String pwString = prefMgr.get(PreferenceManager.PROXY_PW, null);
+        auth = prefMgr.getAsBoolean(PROXY_AUTHENTICATE);
+        user = prefMgr.get(PROXY_USER, null);
+        String pwString = prefMgr.get(PROXY_PW, null);
         if (pwString != null) {
             pw = Utilities.base64Decode(pwString);
         }
 
-        String proxyTypeString = prefMgr.get(PreferenceManager.PROXY_TYPE, "HTTP");
+        String proxyTypeString = prefMgr.get(PROXY_TYPE, "HTTP");
         Proxy.Type type = Proxy.Type.valueOf(proxyTypeString.trim().toUpperCase());
 
-        String proxyWhitelistString = prefMgr.get(PreferenceManager.PROXY_WHITELIST);
+        String proxyWhitelistString = prefMgr.get(PROXY_WHITELIST);
         Set<String> whitelist = proxyWhitelistString == null ? new HashSet<String>() :
                 new HashSet(Arrays.asList(Globals.commaPattern.split(proxyWhitelistString)));
 
@@ -413,7 +401,7 @@ public class HttpUtils {
      */
     private Proxy getSystemProxy(String uri) {
         try {
-            log.debug("Getting system proxy for " + uri);
+            if(PreferencesManager.getPreferences().getAsBoolean("DEBUG.PROXY")) log.info("Getting system proxy for " + uri);
             ProxySelector selector = ProxySelector.getDefault();
             List<Proxy> proxyList = selector.select(new URI(uri));
             return proxyList.get(0);
@@ -466,15 +454,15 @@ public class HttpUtils {
                     urlDownloader.cancel(true);
                 }
             };
-          //  String permText = "Downloading " + url;
-          //  String title = dialogTitle != null ? dialogTitle : permText;
-          //  CancellableProgressDialog dialog = CancellableProgressDialog.showCancellableProgressDialog(dialogsParent, title, buttonListener, false, monitor);
-          //  dialog.setPermText(permText);
+            //  String permText = "Downloading " + url;
+            //  String title = dialogTitle != null ? dialogTitle : permText;
+            //  CancellableProgressDialog dialog = CancellableProgressDialog.showCancellableProgressDialog(dialogsParent, title, buttonListener, false, monitor);
+            //  dialog.setPermText(permText);
 
-          //  Dimension dms = new Dimension(600, 150);
-          //  dialog.setPreferredSize(dms);
-          //  dialog.setSize(dms);
-          //  dialog.validate();
+            //  Dimension dms = new Dimension(600, 150);
+            //  dialog.setPreferredSize(dms);
+            //  dialog.setSize(dms);
+            //  dialog.validate();
 
             LongRunningTask.submit(urlDownloader);
             return urlDownloader;
@@ -635,6 +623,12 @@ public class HttpUtils {
     private HttpURLConnection openConnection(
             URL url, Map<String, String> requestProperties, String method, int redirectCount) throws IOException {
 
+        // if the url points to a openid location instead of a oauth2.0 location, used the fina and replace
+        // string to dynamically map url - dwm08
+        if (url.getHost().equals(OAuthUtils.GS_HOST) && OAuthUtils.findString != null && OAuthUtils.replaceString!= null) {
+        	url = new URL(url.toExternalForm().replaceFirst(OAuthUtils.findString, OAuthUtils.replaceString));
+        }
+
         // Map amazon cname aliases to the full hosts -- neccessary to avoid ssl certificate errors in Java 1.8
         url = mapCname(url);
 
@@ -657,7 +651,7 @@ public class HttpUtils {
         if (!igvProxySettingsExist) {
             sysProxy = getSystemProxy(url.toExternalForm());
         }
-        boolean useProxy = sysProxy != null ||
+        boolean useProxy = (sysProxy != null && sysProxy.type() != Proxy.Type.DIRECT) ||
                 (igvProxySettingsExist && !proxySettings.getWhitelist().contains(url.getHost()));
 
         HttpURLConnection conn;
@@ -665,8 +659,15 @@ public class HttpUtils {
             Proxy proxy = sysProxy;
             if (igvProxySettingsExist) {
                 if (proxySettings.type == Proxy.Type.DIRECT) {
+
+                    if(PreferencesManager.getPreferences().getAsBoolean("DEBUG.PROXY")) {log.info("NO_PROXY");}
+
                     proxy = Proxy.NO_PROXY;
                 } else {
+                    if(PreferencesManager.getPreferences().getAsBoolean("DEBUG.PROXY")) {
+                        log.info("PROXY " + proxySettings.proxyHost + "  " + proxySettings.proxyPort);
+                    }
+
                     proxy = new Proxy(proxySettings.type, new InetSocketAddress(proxySettings.proxyHost, proxySettings.proxyPort));
                 }
             }
@@ -679,6 +680,12 @@ public class HttpUtils {
                 conn.setRequestProperty("Proxy-Authorization", "Basic " + encodedUserPwd);
             }
         } else {
+            if(PreferencesManager.getPreferences().getAsBoolean("DEBUG.PROXY")) {
+                log.info("PROXY NOT USED ");
+                if(proxySettings.getWhitelist().contains(url.getHost())) {
+                    log.info(url.getHost() + " is whitelisted");
+                };
+            }
             conn = (HttpURLConnection) url.openConnection();
         }
 
@@ -717,6 +724,21 @@ public class HttpUtils {
 
             int code = conn.getResponseCode();
 
+            if (requestProperties != null && requestProperties.containsKey("Range") && code == 200 && method.equals("GET")) {
+                log.error("Range header removed by client or ignored by server for url: " + url.toString());
+
+                if(!SwingUtilities.isEventDispatchThread()) {
+                    MessageUtils.showMessage("Warning: unsuccessful attempt to execute 'Range byte' request to host " + url.getHost());
+                }
+
+                byteRangeTestMap.put(url.getHost(), false);
+                String[] positionString = requestProperties.get("Range").split("=")[1].split("-");
+                int length = Integer.parseInt(positionString[1]) - Integer.parseInt(positionString[0]) + 1;
+                requestProperties.remove("Range"); // < VERY IMPORTANT
+                URL wsUrl = new URL(WEBSERVICE_URL + "?file=" + url.toExternalForm() + "&position=" + positionString[0] + "&length=" + length);
+                return openConnection(wsUrl, requestProperties, "GET", redirectCount);
+            }
+
             if (log.isDebugEnabled()) {
                 //logHeaders(conn);
             }
@@ -748,7 +770,10 @@ public class HttpUtils {
                 } else if (code == 403) {
                     message = "Access forbidden";
                     throw new HttpResponseException(code, message, "");
-                } else {
+                } else if (code == 416) {
+                    throw new UnsatisfiableRangeException(conn.getResponseMessage());
+                }
+                else {
                     message = conn.getResponseMessage();
                     String details = readErrorStream(conn);
                     throw new HttpResponseException(code, message, details);
@@ -760,6 +785,7 @@ public class HttpUtils {
 
     /**
      * Explicitly map cnames here.  Also fix other url migration issues.
+     *
      * @param url
      * @return
      */
@@ -771,8 +797,8 @@ public class HttpUtils {
             if (host.equals("igv.broadinstitute.org")) {
                 urlString = urlString.replace("igv.broadinstitute.org", "s3.amazonaws.com/igv.broadinstitute.org");
             } else if (host.equals("igvdata.broadinstitute.org")) {
-                // Drop support for cloudfront server
-                urlString = urlString.replace("igvdata.broadinstitute.org", "s3.amazonaws.com/igv.broadinstitute.org");
+                // Cloudfront server
+                urlString = urlString.replace("igvdata.broadinstitute.org", "dn7ywbm9isq8j.cloudfront.net");
             } else if (host.equals("www.broadinstitute.org")) {
                 urlString = urlString.replace("www.broadinstitute.org/igvdata", "data.broadinstitute.org/igvdata");
             }
@@ -1126,4 +1152,13 @@ public class HttpUtils {
     }
 
 
+    public class UnsatisfiableRangeException extends RuntimeException {
+
+        String message;
+
+        public UnsatisfiableRangeException(String message) {
+            super(message);
+            this.message = message;
+        }
+    }
 }

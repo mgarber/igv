@@ -41,29 +41,26 @@ import htsjdk.samtools.seekablestream.SeekableFileStream;
 import org.apache.log4j.Logger;
 import org.broad.igv.DirectoryManager;
 import org.broad.igv.Globals;
-import org.broad.igv.PreferenceManager;
 import org.broad.igv.annotations.ForTesting;
 import org.broad.igv.batch.BatchRunner;
 import org.broad.igv.batch.CommandListener;
 import org.broad.igv.dev.api.IGVPlugin;
 import org.broad.igv.exceptions.DataLoadException;
-import org.broad.igv.feature.Locus;
+import org.broad.igv.feature.*;
 import org.broad.igv.feature.Range;
-import org.broad.igv.feature.MaximumContigGenomeException;
-import org.broad.igv.feature.RegionOfInterest;
 import org.broad.igv.feature.genome.*;
 import org.broad.igv.lists.GeneList;
-import org.broad.igv.lists.Preloader;
 import org.broad.igv.peaks.PeakCommandBar;
+import org.broad.igv.prefs.IGVPreferences;
+import org.broad.igv.prefs.PreferenceEditorFX;
+import org.broad.igv.prefs.PreferencesEditor;
+import org.broad.igv.prefs.PreferencesManager;
 import org.broad.igv.sam.AlignmentTrack;
-import org.broad.igv.session.IGVSessionReader;
-import org.broad.igv.session.Session;
-import org.broad.igv.session.SessionReader;
-import org.broad.igv.session.UCSCSessionReader;
-import org.broad.igv.session.IndexAwareSessionReader;
+import org.broad.igv.sam.InsertionSelectionEvent;
+import org.broad.igv.session.*;
 import org.broad.igv.track.*;
 import org.broad.igv.ui.dnd.GhostGlassPane;
-import org.broad.igv.ui.event.*;
+import org.broad.igv.event.*;
 import org.broad.igv.ui.panel.*;
 import org.broad.igv.ui.util.*;
 import org.broad.igv.ui.util.ProgressMonitor;
@@ -77,9 +74,6 @@ import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.awt.image.ImageObserver;
 import java.io.*;
-import java.lang.ref.SoftReference;
-import java.lang.ref.WeakReference;
-import java.lang.reflect.InvocationTargetException;
 import java.net.NoRouteToHostException;
 import java.net.URL;
 import java.net.URLDecoder;
@@ -88,6 +82,7 @@ import java.util.List;
 import java.util.concurrent.Future;
 import java.util.prefs.Preferences;
 
+import static org.broad.igv.prefs.Constants.*;
 import static org.broad.igv.ui.WaitCursorManager.CursorToken;
 
 /**
@@ -140,14 +135,9 @@ public class IGV implements IGVEventObserver {
     private LinkedList<String> recentSessionList = new LinkedList<String>();
     private boolean isExportingSnapshot = false;
 
-    // Listeners
-    Collection<WeakReference<TrackGroupEventListener>> groupListeners =
-            Collections.synchronizedCollection(new ArrayList<>());
-
-    Collection<WeakReference<AlignmentTrackEventListener>> alignmentTrackListeners =
-            Collections.synchronizedCollection(new ArrayList<>());
-
     private List<JComponent> otherToolMenus = new ArrayList<>();
+
+    // Vertical line that follows the mouse
     private boolean rulerEnabled;
 
     /**
@@ -215,23 +205,12 @@ public class IGV implements IGVEventObserver {
 
         theInstance = this;
 
-        genomeManager = GenomeManager.getInstance();
+        final IGVPreferences preferences = PreferencesManager.getPreferences();
 
+        genomeManager = GenomeManager.getInstance();
         mainFrame = frame;
         mainFrame.addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosing(WindowEvent windowEvent) {
-                windowCloseEvent();
-            }
 
-            @Override
-            public void windowClosed(WindowEvent windowEvent) {
-                windowCloseEvent();
-            }
-
-            private void windowCloseEvent() {
-                PreferenceManager.getInstance().setApplicationFrameBounds(mainFrame.getBounds());
-            }
 
             @Override
             public void windowLostFocus(WindowEvent windowEvent) {
@@ -287,66 +266,76 @@ public class IGV implements IGVEventObserver {
         rootPane.setJMenuBar(menuBar);
         glassPane = rootPane.getGlassPane();
         glassPane.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
-        glassPane.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                super.mouseClicked(e);
-                if (Globals.isDevelopment()) {
-                    Component cButton = contentPane.getStatusBar().getCancelButton();
-                    int tX = -(contentPane.getStatusBar().getX() + cButton.getX());
-                    int tY = -(contentPane.getY() + contentPane.getStatusBar().getY());
-                    e.translatePoint(tX, tY);
-                    if (cButton.contains(e.getPoint())) {
-                        contentPane.getStatusBar().getCancelButton().doClick();
-                    }
-                }
-            }
-        });
+        consumeEvents(glassPane);
+
         dNdGlassPane = new GhostGlassPane();
 
         mainFrame.pack();
-
-        // Set the application's previous location and size
-        Dimension screenBounds = Toolkit.getDefaultToolkit().getScreenSize();
-        Rectangle applicationBounds = PreferenceManager.getInstance().getApplicationFrameBounds();
-        int state = PreferenceManager.getInstance().getAsInt(PreferenceManager.FRAME_STATE_KEY);
-
-        if (applicationBounds == null || applicationBounds.getMaxX() > screenBounds.getWidth() ||
-                applicationBounds.getMaxY() > screenBounds.getHeight()) {
-            int width = Math.min(1150, (int) screenBounds.getWidth());
-            int height = Math.min(800, (int) screenBounds.getHeight());
-            applicationBounds = new Rectangle(0, 0, width, height);
-        }
 
         //Certain components MUST be visible, so we set minimum size
         //{@link MainPanel#addDataPanel}
         mainFrame.setMinimumSize(new Dimension(300, 300));
 
-        mainFrame.setExtendedState(state);
+        // Set the application's previous location and size
+        Dimension screenBounds = Toolkit.getDefaultToolkit().getScreenSize();
+        Rectangle applicationBounds = preferences.getApplicationFrameBounds();
+
+        if (applicationBounds == null || applicationBounds.getMaxX() > screenBounds.getWidth() ||
+                applicationBounds.getMaxY() > screenBounds.getHeight() ||
+                applicationBounds.width == 0 || applicationBounds.height == 0) {
+            int width = Math.min(1150, (int) screenBounds.getWidth());
+            int height = Math.min(800, (int) screenBounds.getHeight());
+            applicationBounds = new Rectangle(0, 0, width, height);
+        }
         mainFrame.setBounds(applicationBounds);
 
-        IGVEventBus.getInstance().subscribe(ViewChange.class, this);
+        subscribeToEvents();
     }
 
+    private void consumeEvents(Component glassPane) {
 
-    public void receiveEvent(Object event) {
+        glassPane.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
 
-        if (event instanceof ViewChange) {
-            ViewChange e = (ViewChange) event;
-            if (e.type == ViewChange.Type.ChromosomeChange) {
-                chromosomeChangeEvent(e.chrName, false);
-            } else {
-                repaintDataAndHeaderPanels();
-                repaintStatusAndZoomSlider();
+                Point glassPanePoint = e.getPoint();
+                Container container = IGV.this.contentPane;
+                Point containerPoint = SwingUtilities.convertPoint(glassPane,
+                        glassPanePoint, container);
+
+                Component component = SwingUtilities.getDeepestComponentAt(
+                        container, containerPoint.x, containerPoint.y);
+
+                if (component == IGV.this.contentPane.getStatusBar().stopButton) {
+                    IGVEventBus.getInstance().post(new StopEvent());
+                }
+                e.consume();
+
             }
-        } else {
-            log.info("Unknown event type: " + event.getClass());
-        }
-    }
 
+            @Override
+            public void mousePressed(MouseEvent e) {
+                e.consume();
 
-    public void repaint() {
-        mainFrame.repaint();
+            }
+        });
+        glassPane.setFocusable(true);
+        glassPane.addKeyListener(new KeyListener() {
+            @Override
+            public void keyTyped(KeyEvent e) {
+                e.consume();
+            }
+
+            @Override
+            public void keyReleased(KeyEvent e) {
+                e.consume();
+            }
+
+            @Override
+            public void keyPressed(KeyEvent e) {
+                e.consume();
+            }
+        });
     }
 
 
@@ -375,7 +364,7 @@ public class IGV implements IGVEventObserver {
         doRefresh();
     }
 
-    void beginROI(JButton button) {
+    public void beginROI(JButton button) {
         for (TrackPanel tp : getTrackPanels()) {
             TrackPanelScrollPane tsv = tp.getScrollPane();
             DataPanelContainer dpc = tsv.getDataPanel();
@@ -399,108 +388,22 @@ public class IGV implements IGVEventObserver {
 
     }
 
-    private void chromosomeChangeEvent(String chrName, boolean updateCommandBar) {
-        contentPane.chromosomeChanged(chrName);
-        repaintDataAndHeaderPanels(updateCommandBar);
-        contentPane.getCommandBar().updateComponentStates();
-    }
-
-    public void repaintStatusAndZoomSlider() {
-        contentPane.getCommandBar().updateComponentStates();
-        contentPane.getCommandBar().repaint();
-    }
-
-    /**
-     * Repaints dataAndHeaderPanels as well as
-     * zoom controls IFF IGV has instance && not headless.
-     * Mostly use for testing
-     */
-    public static void repaintPanelsHeadlessSafe() {
-        if (IGV.hasInstance() && !Globals.isHeadless()) {
-            IGV.getInstance().repaintDataAndHeaderPanels();
-            IGV.getInstance().repaintStatusAndZoomSlider();
-        }
-    }
-
-    /**
-     * Repaint panels containing data, specifically the dataTrackPanel,
-     * featureTrackPanel, and headerPanel.
-     */
-    public void repaintDataAndHeaderPanels() {
-        repaintDataAndHeaderPanels(true);
-    }
-
-    public void repaintDataPanels() {
-        repaintDataAndHeaderPanels(false);
-    }
-
-    /**
-     * Repaint the header and data panels.
-     * <p/>
-     * Note:  If running in Batch mode we force synchronous painting.  This is necessary as the
-     * paint() command triggers loading of data.  If allowed to proceed asynchronously the "snapshot" batch command
-     * might execute before the data from a previous command has loaded.
-     *
-     * @param updateCommandBar
-     */
-    public void repaintDataAndHeaderPanels(boolean updateCommandBar) {
-        if (Globals.isBatch()) {
-            Runnable r = new Runnable() {
-                public void run() {
-                    contentPane.revalidateDataPanels();
-                    rootPane.paintImmediately(rootPane.getBounds());
-                }
-            };
-            if (SwingUtilities.isEventDispatchThread()) {
-                r.run();
-            } else {
-                try {
-                    SwingUtilities.invokeAndWait(r);
-                } catch (InterruptedException e) {
-                    // Just continue
-                    log.error(e);
-                } catch (InvocationTargetException e) {
-                    log.error(e.getMessage());
-                    throw new RuntimeException(e);
-                }
-            }
-        } else {
-            contentPane.revalidateDataPanels();
-            rootPane.repaint();
-        }
-
-        if (updateCommandBar) {
-            contentPane.updateCurrentCoordinates();
-        }
-    }
-
-    public void repaintNamePanels() {
-        for (TrackPanel tp : getTrackPanels()) {
-            tp.getScrollPane().getNamePanel().repaint();
-        }
-
-    }
-
-    public void selectGenomeFromList(String genomeId) {
-        contentPane.getCommandBar().selectGenome(genomeId);
-    }
-
-    public Collection<String> getSelectableGenomeIDs() {
-        return contentPane.getCommandBar().getSelectableGenomeIDs();
-    }
-
     // Set the focus on the command bar search box
     public void focusSearchBox() {
         contentPane.getCommandBar().focusSearchBox();
     }
 
 
-    public void doDefineGenome(javax.swing.ProgressMonitor monitor) {
+    public void selectGenomeFromList(String genomeId) {
+        contentPane.getCommandBar().selectGenome(genomeId);
+    }
+
+
+    public void defineGenome(javax.swing.ProgressMonitor monitor) {
 
         ProgressBar.ProgressDialog progressDialog = null;
         File archiveFile = null;
 
-        CursorToken token = WaitCursorManager.showWaitCursor();
         try {
             GenomeBuilderDialog genomeBuilderDialog = new GenomeBuilderDialog(mainFrame, this);
             genomeBuilderDialog.setVisible(true);
@@ -540,7 +443,7 @@ public class IGV implements IGVEventObserver {
 
             log.error("Failed to define genome: " + genomePath, e);
 
-            JOptionPane.showMessageDialog(mainFrame, "Failed to define the current genome " +
+            JOptionPane.showMessageDialog(mainFrame, "Failed to define genome " +
                     genomePath + "\n" + e.getMessage());
         } catch (GenomeException e) {
             log.error("Failed to define genome.", e);
@@ -557,174 +460,8 @@ public class IGV implements IGVEventObserver {
             if (progressDialog != null) {
                 progressDialog.setVisible(false);
             }
-            WaitCursorManager.removeWaitCursor(token);
         }
     }
-
-    public GenomeListItem getGenomeSelectedInDropdown() {
-        return contentPane.getCommandBar().getGenomeSelectedInDropdown();
-    }
-
-    /**
-     * Gets the collection of genome display names currently in use.
-     *
-     * @return Set of display names.
-     */
-    public Collection<String> getGenomeDisplayNames() {
-        return contentPane.getCommandBar().getGenomeDisplayNames();
-    }
-
-    void loadGenomeFromServerAction() {
-
-        Runnable showDialog = new Runnable() {
-            @Override
-            public void run() {
-
-                Collection<GenomeListItem> inputListItems = GenomeManager.getInstance().getServerGenomeArchiveList();
-                if (inputListItems == null) {
-                    //Could not reach genome server.  Not necessary to display a message, getServerGenomeArchiveList does it already
-                    return;
-                }
-
-                GenomeSelectionDialog dialog = new GenomeSelectionDialog(IGV.getMainFrame(), inputListItems, ListSelectionModel.SINGLE_SELECTION);
-                dialog.setVisible(true);
-                List<GenomeListItem> selectedValues = dialog.getSelectedValuesList();
-
-                if (selectedValues != null && selectedValues.size() >= 1) {
-
-                    if (selectedValues.size() == 1 && dialog.downloadSequence()) {
-
-                        GenomeListItem oldItem = selectedValues.get(0);
-
-                        GenomeSelectionDialog.downloadGenome(getMainFrame(), oldItem);
-
-                        File newLocation = new File(DirectoryManager.getGenomeCacheDirectory().getAbsolutePath(), Utilities.getFileNameFromURL(oldItem.getLocation()));
-
-                        GenomeListItem newItem = new GenomeListItem(oldItem.getDisplayableName(), newLocation.getAbsolutePath(), oldItem.getId());
-                        //Checking to see if it has a downloaded sequence might seem redundant,
-                        //but if the user cancels a download we want to use the oldItem
-                        if (newItem.hasDownloadedSequence()) {
-                            selectedValues = Arrays.asList(newItem);
-                        }
-                    }
-
-                    if (selectedValues.size() > 0) {
-                        GenomeManager.getInstance().addGenomeItems(selectedValues, false);
-                        getContentPane().getCommandBar().refreshGenomeListComboBox();
-                        selectGenomeFromList(selectedValues.get(0).getId());
-                    }
-                }
-            }
-        };
-        LongRunningTask.submit(showDialog);
-    }
-
-    /**
-     * Load a .genome file directly.  This method really belongs in IGVMenuBar.
-     *
-     * @param monitor
-     * @return
-     */
-    public void doLoadGenome(ProgressMonitor monitor) {
-
-        ProgressBar.ProgressDialog progressDialog = null;
-        File file = null;
-        CursorToken token = WaitCursorManager.showWaitCursor();
-        try {
-            File importDirectory = PreferenceManager.getInstance().getLastGenomeImportDirectory();
-            if (importDirectory == null) {
-                PreferenceManager.getInstance().setLastGenomeImportDirectory(DirectoryManager.getUserDirectory());
-            }
-
-            // Display the dialog
-            file = FileDialogUtils.chooseFile("Load Genome", importDirectory, FileDialog.LOAD);
-
-
-            // If a file selection was made
-            if (file != null) {
-                log.info("Loading genome: file.name=" + file.getName() + "  file.path=" + file.getPath() +
-                        "  file.absolutePath=" + file.getAbsolutePath());
-
-                if (monitor != null) {
-                    progressDialog = ProgressBar.showProgressDialog(mainFrame, "Loading Genome...", monitor, false);
-                }
-
-                loadGenome(file.getAbsolutePath(), monitor, true);
-
-            }
-        } catch (IOException e) {
-            MessageUtils.showMessage("<html>Error loading: " + file.getAbsolutePath() + "<br>" + e.getMessage());
-            log.error("Error loading: " + file.getAbsolutePath(), e);
-        } finally {
-            WaitCursorManager.removeWaitCursor(token);
-            if (monitor != null) {
-                monitor.fireProgressChange(100);
-            }
-
-            if (progressDialog != null) {
-                progressDialog.setVisible(false);
-            }
-        }
-
-    }
-
-    public void loadGenomeById(String genomeId) {
-
-        final Genome currentGenome = genomeManager.getCurrentGenome();
-        if(currentGenome != null && genomeId.equals(currentGenome.getId())) {
-            return; // Already loaded
-        }
-
-        if (ParsingUtils.pathExists(genomeId)) {
-            try {
-                loadGenome(genomeId, null, false);
-            } catch (IOException e) {
-                log.error("Error loading genome file: " + genomeId, e);
-            }
-        } else {
-            contentPane.getCommandBar().selectGenome(genomeId);
-        }
-    }
-
-    public void loadGenome(String path, ProgressMonitor monitor, boolean userDefined) throws IOException {
-        loadGenome(path, monitor, true, userDefined);
-    }
-
-    /**
-     * @param path
-     * @param monitor
-     * @param addGenomeTrack Whether to display the gene track as well
-     * @throws IOException
-     */
-    public void loadGenome(String path, ProgressMonitor monitor, boolean addGenomeTrack, boolean userDefined) throws IOException {
-
-        File file = new File(path);
-        if (file.exists()) {
-            File directory = file.getAbsoluteFile().getParentFile();
-            PreferenceManager.getInstance().setLastGenomeImportDirectory(directory);
-        }
-
-        resetSession(null);
-
-        Genome genome = getGenomeManager().loadGenome(path, monitor, addGenomeTrack);
-        //If genome loading cancelled
-        if (genome == null) return;
-
-        final String name = genome.getDisplayName();
-        final String id = genome.getId();
-
-        GenomeListItem genomeListItem = new GenomeListItem(name, path, id);
-        getGenomeManager().addGenomeItem(genomeListItem, userDefined);
-
-        IGVCommandBar cmdBar = contentPane.getCommandBar();
-        cmdBar.refreshGenomeListComboBox();
-        cmdBar.selectGenome(genomeListItem.getId());
-        cmdBar.updateChromosFromGenome(genome);
-
-        FrameManager.getDefaultFrame().setChromosomeName(genome.getHomeChromosome(), true);
-
-    }
-
 
     public void enableExtrasMenu() {
 
@@ -746,9 +483,6 @@ public class IGV implements IGVEventObserver {
 
         Future toRet = null;
         if (locators != null && !locators.isEmpty()) {
-
-            // NOTE:  this work CANNOT be done on the dispatch thread, it will potentially cause deadlock if
-            // dialogs are opened or other Swing tasks are done.
 
             NamedRunnable runnable = new NamedRunnable() {
                 public void run() {
@@ -800,44 +534,47 @@ public class IGV implements IGVEventObserver {
      */
     public void resetPanelHeights(Map<TrackPanelScrollPane, Integer> trackCountMap, Map<TrackPanelScrollPane, Integer> panelSizeMap) {
 
-        double totalHeight = 0;
-        for (TrackPanel tp : getTrackPanels()) {
-            TrackPanelScrollPane sp = tp.getScrollPane();
-            if (trackCountMap.containsKey(sp)) {
-                int prevTrackCount = trackCountMap.get(sp);
-                if (prevTrackCount != sp.getDataPanel().getAllTracks().size()) {
-                    int scrollPosition = panelSizeMap.get(sp);
-                    if (prevTrackCount != 0 && sp.getVerticalScrollBar().isShowing()) {
-                        sp.getVerticalScrollBar().setMaximum(sp.getDataPanel().getHeight());
-                        sp.getVerticalScrollBar().setValue(scrollPosition);
+        UIUtilities.invokeAndWaitOnEventThread(() -> {
+
+            double totalHeight = 0;
+            for (TrackPanel tp : getTrackPanels()) {
+                TrackPanelScrollPane sp = tp.getScrollPane();
+                if (trackCountMap.containsKey(sp)) {
+                    int prevTrackCount = trackCountMap.get(sp);
+                    if (prevTrackCount != sp.getDataPanel().getAllTracks().size()) {
+                        int scrollPosition = panelSizeMap.get(sp);
+                        if (prevTrackCount != 0 && sp.getVerticalScrollBar().isShowing()) {
+                            sp.getVerticalScrollBar().setMaximum(sp.getDataPanel().getHeight());
+                            sp.getVerticalScrollBar().setValue(scrollPosition);
+                        }
                     }
                 }
+                // Give a maximum "weight" of 300 pixels to each panel.  If there are no tracks, give zero
+                if (sp.getTrackPanel().getTracks().size() > 0)
+                    totalHeight += Math.min(300, sp.getTrackPanel().getPreferredPanelHeight());
             }
-            // Give a maximum "weight" of 300 pixels to each panel.  If there are no tracks, give zero
-            if (sp.getTrackPanel().getTracks().size() > 0)
-                totalHeight += Math.min(300, sp.getTrackPanel().getPreferredPanelHeight());
-        }
 
-        // Adjust dividers for data panel.  The data panel divider can be
-        // zero if there are no data tracks loaded.
-        final JideSplitPane centerSplitPane = contentPane.getMainPanel().getCenterSplitPane();
-        int htotal = centerSplitPane.getHeight();
-        int y = 0;
-        int i = 0;
-        for (Component c : centerSplitPane.getComponents()) {
-            if (c instanceof TrackPanelScrollPane) {
-                final TrackPanel trackPanel = ((TrackPanelScrollPane) c).getTrackPanel();
-                if (trackPanel.getTracks().size() > 0) {
-                    int panelWeight = Math.min(300, trackPanel.getPreferredPanelHeight());
-                    int dh = (int) ((panelWeight / totalHeight) * htotal);
-                    y += dh;
+            // Adjust dividers for data panel.  The data panel divider can be
+            // zero if there are no data tracks loaded.
+            final JideSplitPane centerSplitPane = contentPane.getMainPanel().getCenterSplitPane();
+            int htotal = centerSplitPane.getHeight();
+            int y = 0;
+            int i = 0;
+            for (Component c : centerSplitPane.getComponents()) {
+                if (c instanceof TrackPanelScrollPane) {
+                    final TrackPanel trackPanel = ((TrackPanelScrollPane) c).getTrackPanel();
+                    if (trackPanel.getTracks().size() > 0) {
+                        int panelWeight = Math.min(300, trackPanel.getPreferredPanelHeight());
+                        int dh = (int) ((panelWeight / totalHeight) * htotal);
+                        y += dh;
+                    }
+                    centerSplitPane.setDividerLocation(i, y);
+                    i++;
                 }
-                centerSplitPane.setDividerLocation(i, y);
-                i++;
             }
-        }
 
-        contentPane.getMainPanel().invalidate();
+            contentPane.getMainPanel().invalidate();
+        });
     }
 
     public void setGeneList(GeneList geneList) {
@@ -859,7 +596,6 @@ public class IGV implements IGVEventObserver {
                         }
                         session.setCurrentGeneList(geneList);
                     }
-                    Preloader.preload();
                     resetFrames();
                 } finally {
                     WaitCursorManager.removeWaitCursor(token);
@@ -878,68 +614,21 @@ public class IGV implements IGVEventObserver {
         resetFrames();
     }
 
-    public void resetFrames() {
-        contentPane.getMainPanel().headerPanelContainer.createHeaderPanels();
-        for (TrackPanel tp : getTrackPanels()) {
-            tp.createDataPanels();
-        }
-
-        contentPane.getCommandBar().setGeneListMode(FrameManager.isGeneListMode());
-        contentPane.getMainPanel().applicationHeaderPanel.revalidate();
-        contentPane.getMainPanel().validate();
-        contentPane.getMainPanel().repaint();
-    }
 
     final public void doViewPreferences() {
-        doViewPreferences(null);
-    }
 
-    /**
-     * Open the user preferences dialog
-     */
-    final public void doViewPreferences(final String tabToSelect) {
-
-        UIUtilities.invokeOnEventThread(new Runnable() {
-
-            public void run() {
-
-                boolean originalSingleTrackValue =
-                        PreferenceManager.getInstance().getAsBoolean(PreferenceManager.SHOW_SINGLE_TRACK_PANE_KEY);
-
-                PreferencesEditor dialog = new PreferencesEditor(mainFrame, true);
-                if (tabToSelect != null) {
-                    dialog.selectTab(tabToSelect);
-                }
-                dialog.setVisible(true);
-
-
-                if (dialog.isCanceled()) {
-                    resetStatusMessage();
-                    return;
-
-                }
-
-
-                try {
-
-                    //Should data and feature panels be combined ?
-                    boolean singlePanel = PreferenceManager.getInstance().getAsBoolean(PreferenceManager.SHOW_SINGLE_TRACK_PANE_KEY);
-                    if (originalSingleTrackValue != singlePanel) {
-                        JOptionPane.showMessageDialog(mainFrame, "Panel option change will take affect after restart.");
-                    }
-
-
-                } finally {
-
-                    // Update the state of the current tracks for drawing purposes
-                    doRefresh();
-                    resetStatusMessage();
-
-                }
-
-
+        // 2.x releases -- swing editor
+        if(Globals.VERSION.contains("2.4")) {
+             PreferencesEditor dialog = new PreferencesEditor(this.mainFrame, true);
+             dialog.setVisible(true);
+        }  else {
+            // 3.0 releases -- javafx
+            try {
+                PreferenceEditorFX.open(this.mainFrame);
+            } catch (IOException e) {
+                log.error("Error openining preference dialog", e);
             }
-        });
+        }
     }
 
     final public void saveStateForExit() {
@@ -962,46 +651,23 @@ public class IGV implements IGVEventObserver {
                 }
 
             }
-            PreferenceManager.getInstance().remove(PreferenceManager.RECENT_SESSION_KEY);
-            PreferenceManager.getInstance().setRecentSessions(recentSessions);
+            PreferencesManager.getPreferences().remove(RECENT_SESSIONS);
+            PreferencesManager.getPreferences().setRecentSessions(recentSessions);
         }
-
-        // Save application location and size
-        PreferenceManager.getInstance().setApplicationFrameBounds(mainFrame.getBounds());
-        PreferenceManager.getInstance().put(PreferenceManager.FRAME_STATE_KEY, "" + mainFrame.getExtendedState());
 
     }
 
     final public void doShowAttributeDisplay(boolean enableAttributeView) {
 
-        boolean oldState = PreferenceManager.getInstance().getAsBoolean(PreferenceManager.SHOW_ATTRIBUTE_VIEWS_KEY);
+        boolean oldState = PreferencesManager.getPreferences().getAsBoolean(SHOW_ATTRIBUTE_VIEWS_KEY);
 
         // First store the newly requested state
-        PreferenceManager.getInstance().setShowAttributeView(enableAttributeView);
-
-        //menuItem.setSelected(enableAttributeView);
-
-        // Now, if the state has actually change we
-        // need to refresh everything
         if (oldState != enableAttributeView) {
+            PreferencesManager.getPreferences().setShowAttributeView(enableAttributeView);
             doRefresh();
         }
 
 
-    }
-
-
-    final public void doRefresh() {
-
-        contentPane.getMainPanel().revalidate();
-        mainFrame.repaint();
-        //getContentPane().repaint();
-        contentPane.getCommandBar().updateComponentStates();
-        // menuBar.createFileMenu();
-    }
-
-    final public void refreshCommandBar() {
-        contentPane.getCommandBar().updateCurrentCoordinates();
     }
 
 
@@ -1020,7 +686,7 @@ public class IGV implements IGVEventObserver {
             Set<String> selections = dlg.getSelections();
             for (String att : AttributeManager.defaultTrackAttributes) {
                 if (selections.contains(att)) {
-                    PreferenceManager.getInstance().put(PreferenceManager.SHOW_DEFAULT_TRACK_ATTRIBUTES, true);
+                    PreferencesManager.getPreferences().put(SHOW_DEFAULT_TRACK_ATTRIBUTES, true);
                     break;
                 }
             }
@@ -1088,6 +754,11 @@ public class IGV implements IGVEventObserver {
 
         String extension = FileUtils.getFileExtension(file.getAbsolutePath());
 
+        if (extension == null) {
+            extension = ".png";
+            file = new File(file.getAbsolutePath() + extension);
+        }
+
         SnapshotFileChooser.SnapshotFileType type = SnapshotFileChooser.getSnapshotFileType(extension);
 
         String message;
@@ -1122,7 +793,7 @@ public class IGV implements IGVEventObserver {
 
     public File selectSnapshotFile(File defaultFile) {
 
-        File snapshotDirectory = PreferenceManager.getInstance().getLastSnapshotDirectory();
+        File snapshotDirectory = PreferencesManager.getPreferences().getLastSnapshotDirectory();
 
         JFileChooser fc = new SnapshotFileChooser(snapshotDirectory, defaultFile);
         fc.showSaveDialog(mainFrame);
@@ -1132,7 +803,7 @@ public class IGV implements IGVEventObserver {
         if (file != null) {
             File directory = file.getParentFile();
             if (directory != null) {
-                PreferenceManager.getInstance().setLastSnapshotDirectory(directory);
+                PreferencesManager.getPreferences().setLastSnapshotDirectory(directory);
             }
 
         }
@@ -1146,28 +817,15 @@ public class IGV implements IGVEventObserver {
             final Image zoomInImage = IconFactory.getInstance().getIcon(IconFactory.IconID.ZOOM_IN).getImage();
             final Image zoomOutImage = IconFactory.getInstance().getIcon(IconFactory.IconID.ZOOM_OUT).getImage();
             final Point hotspot = new Point(10, 10);
-            zoomInCursor = mainFrame.getToolkit().createCustomCursor(zoomInImage, hotspot, "Zoom in");
-            zoomOutCursor = mainFrame.getToolkit().createCustomCursor(zoomOutImage, hotspot, "Zoom out");
+            zoomInCursor = createCustomCursor(zoomInImage, hotspot, "Zoom in", Cursor.CROSSHAIR_CURSOR);
+            zoomOutCursor = createCustomCursor(zoomOutImage, hotspot, "Zoom out", Cursor.DEFAULT_CURSOR);
 
         }
 
     }
 
+
     private void createHandCursor() throws HeadlessException, IndexOutOfBoundsException {
-        /*if (handCursor == null) {
-            BufferedImage handImage = new BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB);
-
-            // Make backgroun transparent
-            Graphics2D g = handImage.createGraphics();
-            g.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR, 0.0f));
-            Rectangle2D.Double rect = new Rectangle2D.Double(0, 0, 32, 32);
-            g.fill(rect);
-
-            // Draw hand image in middle
-            g = handImage.createGraphics();
-            g.drawImage(IconFactory.getInstance().getIcon(IconFactory.IconID.OPEN_HAND).getImage(), 0, 0, null);
-            handCursor = getToolkit().createCustomCursor(handImage, new Point(8, 6), "Move");
-        }*/
 
         if (fistCursor == null) {
             final BufferedImage handImage = new BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB);
@@ -1186,12 +844,7 @@ public class IGV implements IGVEventObserver {
                 public boolean imageUpdate(Image img, int infoflags, int x, int y, int width, int height) {
                     if ((infoflags & ImageObserver.ALLBITS) != 0) {
                         // Image is ready
-                        try {
-                            fistCursor = mainFrame.getToolkit().createCustomCursor(handImage, new Point(8, 6), "Move");
-                        } catch (Exception e) {
-                            log.error("Could not create fistCursor", e);
-                            fistCursor = Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR);
-                        }
+                        fistCursor = createCustomCursor(handImage, new Point(8, 6), "Move", Cursor.HAND_CURSOR);
                         return false;
                     } else {
                         return true;
@@ -1200,7 +853,7 @@ public class IGV implements IGVEventObserver {
             });
             if (ready) {
                 try {
-                    fistCursor = mainFrame.getToolkit().createCustomCursor(handImage, new Point(8, 6), "Move");
+                    fistCursor = createCustomCursor(handImage, new Point(8, 6), "Move", Cursor.HAND_CURSOR);
                 } catch (Exception e) {
                     log.info("Warning: could not create fistCursor");
                     fistCursor = Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR);
@@ -1238,13 +891,7 @@ public class IGV implements IGVEventObserver {
                 public boolean imageUpdate(Image img, int infoflags, int x, int y, int width, int height) {
                     if ((infoflags & ImageObserver.ALLBITS) != 0) {
                         // Image is ready
-                        try {
-                            dragNDropCursor = mainFrame.getToolkit().createCustomCursor(
-                                    dragNDropImage, new Point(0, 0), "Drag and Drop");
-                        } catch (Exception e) {
-                            log.info("Warning: could not create dragNDropCursor");
-                            dragNDropCursor = Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR);
-                        }
+                        dragNDropCursor = createCustomCursor(dragNDropImage, new Point(0, 0), "Drag and Drop", Cursor.CROSSHAIR_CURSOR);
                         return false;
 
                     } else {
@@ -1253,14 +900,18 @@ public class IGV implements IGVEventObserver {
                 }
             });
             if (ready) {
-                try {
-                    dragNDropCursor = mainFrame.getToolkit().createCustomCursor(
-                            dragNDropImage, new Point(0, 0), "Drag and Drop");
-                } catch (Exception e) {
-                    log.info("Warning: could not create dragNDropCursor");
-                    dragNDropCursor = Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR);
-                }
+                dragNDropCursor = createCustomCursor(dragNDropImage, new Point(0, 0), "Drag and Drop", Cursor.DEFAULT_CURSOR);
             }
+        }
+    }
+
+
+    private Cursor createCustomCursor(Image image, Point hotspot, String name, int defaultCursor) {
+        try {
+            return mainFrame.getToolkit().createCustomCursor(image, hotspot, name);
+        } catch (Exception e) {
+            log.info("Could not create cursor: " + name);
+            return Cursor.getPredefinedCursor(defaultCursor);
         }
     }
 
@@ -1272,7 +923,10 @@ public class IGV implements IGVEventObserver {
      * @param sessionPath
      */
     public void resetSession(String sessionPath) {
+
         System.gc();
+
+        List<Track> oldTracks = getAllTracks();
 
         AttributeManager.getInstance().clearAllAttributes();
 
@@ -1289,17 +943,25 @@ public class IGV implements IGVEventObserver {
             session.reset(sessionPath);
         }
 
-        alignmentTrackListeners.clear();
-        groupListeners.clear();
-
         contentPane.getMainPanel().resetPanels();
 
         //TODO -- this is a very blunt and dangerous way to clean up -- change to close files associated with this session
         SeekableFileStream.closeAllInstances();
 
-        doRefresh();
+        Set<Track> newTracks = new HashSet<>(getAllTracks());
+        for (Track t : oldTracks) {
 
+        }
+
+        doRefresh();
         System.gc();
+    }
+
+    private void subscribeToEvents() {
+        IGVEventBus.getInstance().subscribe(ViewChange.class, this);
+        IGVEventBus.getInstance().subscribe(ShiftEvent.class, this);
+        IGVEventBus.getInstance().subscribe(InsertionSelectionEvent.class, this);
+        IGVEventBus.getInstance().subscribe(GenomeChangeEvent.class, this);
     }
 
     /**
@@ -1326,15 +988,16 @@ public class IGV implements IGVEventObserver {
         contentPane.getStatusBar().setMessage(message);
     }
 
-    /**
-     * Set the status bar message.  If the message equals "Done." intercept
-     * and reset to the default "quite" message,  currently the number of tracks
-     * loaded.
-     *
-     * @param message
-     */
-    public void setStatusBarPosition(String message) {
+    public void setStatusBarMessag2(String message) {
         contentPane.getStatusBar().setMessage2(message);
+    }
+
+    public void setStatusBarMessage3(String message) {
+        contentPane.getStatusBar().setMessage3(message);
+    }
+
+    public void enableStopButton(boolean enable) {
+        contentPane.getStatusBar().enableStopButton(enable);
     }
 
     /**
@@ -1344,8 +1007,8 @@ public class IGV implements IGVEventObserver {
     public void resetToFactorySettings() {
 
         try {
-            PreferenceManager.getInstance().clear();
-            boolean isShow = PreferenceManager.getInstance().getAsBoolean(PreferenceManager.SHOW_ATTRIBUTE_VIEWS_KEY);
+            PreferencesManager.getPreferences().clear();
+            boolean isShow = PreferencesManager.getPreferences().getAsBoolean(SHOW_ATTRIBUTE_VIEWS_KEY);
             doShowAttributeDisplay(isShow);
             Preferences prefs = Preferences.userNodeForPackage(Globals.class);
             prefs.remove(DirectoryManager.IGV_DIR_USERPREF);
@@ -1380,6 +1043,7 @@ public class IGV implements IGVEventObserver {
      * Add a new data panel set
      */
     public TrackPanelScrollPane addDataPanel(String name) {
+
         return contentPane.getMainPanel().addDataPanel(name);
     }
 
@@ -1548,13 +1212,13 @@ public class IGV implements IGVEventObserver {
      * @param def
      * @return
      * @see Session#getPersistent(String, String)
-     * @see PreferenceManager#getPersistent(String, String)
+     * @see IGVPreferences#getPersistent(String, String)
      */
     public static String getPersistent(String key, String def) {
         if (IGV.hasInstance()) {
             return IGV.getInstance().getSession().getPersistent(key, def);
         } else {
-            return PreferenceManager.getInstance().getPersistent(key, def);
+            return PreferencesManager.getPreferences().getPersistent(key, def);
         }
     }
 
@@ -1566,11 +1230,6 @@ public class IGV implements IGVEventObserver {
         contentPane.getStatusBar().setMessage("" +
                 getVisibleTrackCount() + " tracks loaded");
 
-    }
-
-    public void rebuildGenomeDropdownList() {
-        GenomeManager.getInstance().buildGenomeItemList();
-        contentPane.getCommandBar().refreshGenomeListComboBox();
     }
 
     public void showLoadedTrackCount() {
@@ -1688,11 +1347,11 @@ public class IGV implements IGVEventObserver {
     }
 
     public boolean isShowDetailsOnClick() {
-        return contentPane != null && contentPane.getCommandBar().getDetailsBehavior() == IGVCommandBar.SHOW_DETAILS_BEHAVIOR.CLICK;
+        return contentPane != null && contentPane.getCommandBar().getDetailsBehavior() == ShowDetailsBehavior.CLICK;
     }
 
     public boolean isShowDetailsOnHover() {
-        return contentPane != null && contentPane.getCommandBar().getDetailsBehavior() == IGVCommandBar.SHOW_DETAILS_BEHAVIOR.HOVER;
+        return contentPane != null && contentPane.getCommandBar().getDetailsBehavior() == ShowDetailsBehavior.HOVER;
     }
 
     public void openStatusWindow() {
@@ -1711,19 +1370,15 @@ public class IGV implements IGVEventObserver {
 
     /**
      * Load resources into IGV. Tracks are added to the appropriate panel
+     * <p>
+     * NOTE: this must be run on the event tread as UI components are added here.
      *
      * @param locators
      */
     public void loadResources(Collection<ResourceLocator> locators) {
 
-        //Set<TrackPanel> changedPanels = new HashSet();
-
         log.info("Loading " + locators.size() + " resources.");
         final MessageCollection messages = new MessageCollection();
-
-
-        // Load files concurrently -- TODO, put a limit on # of threads?
-        List<Thread> threads = new ArrayList<Thread>(locators.size());
 
         for (final ResourceLocator locator : locators) {
 
@@ -1736,43 +1391,21 @@ public class IGV implements IGVEventObserver {
                 }
             }
 
-            Runnable runnable = new Runnable() {
-                public void run() {
-                    try {
-                        List<Track> tracks = load(locator);
-                        log.debug(tracks.size() + " new tracks loaded");
-                        addTracks(tracks, locator);
-                    } catch (Exception e) {
-                        log.error("Error loading track", e);
-                        messages.append("Error loading " + locator + ": " + e.getMessage());
-                    }
-                }
-            };
-
-            //Thread thread = new Thread(runnable);
-            //thread.start();
-            //threads.add(thread);
-            runnable.run();
-        }
-
-        // Wait for all threads to complete
-        for (Thread t : threads) {
             try {
-                t.join();
-            } catch (InterruptedException ignore) {
-                log.error(ignore.getMessage(), ignore);
-                messages.append("Thread interrupted: " + ignore.getMessage());
+                List<Track> tracks = load(locator);
+                addTracks(tracks, locator);
+            } catch (Exception e) {
+                log.error("Error loading track", e);
+                messages.append("Error loading " + locator + ": " + e.getMessage());
             }
+
         }
-
-        resetGroups();
-        resetOverlayTracks();
-
         if (!messages.isEmpty()) {
             for (String message : messages.getMessages()) {
                 MessageUtils.showMessage(message);
             }
         }
+
     }
 
     /**
@@ -1782,6 +1415,7 @@ public class IGV implements IGVEventObserver {
      * @param panelName
      * @api
      */
+
     public void addTracks(List<Track> tracks, PanelName panelName) {
         TrackPanel panel = getTrackPanel(panelName.getName());
         panel.addTracks(tracks);
@@ -1841,10 +1475,6 @@ public class IGV implements IGVEventObserver {
                 track.setAttributeValue(Globals.TRACK_DATA_FILE_ATTRIBUTE, fn);
                 track.setAttributeValue(Globals.TRACK_DATA_TYPE_ATTRIBUTE, track.getTrackType().toString());
 
-                // If the track listens for group events add it to the listener list
-                if (track instanceof TrackGroupEventListener) {
-                    addGroupEventListener((TrackGroupEventListener) track);
-                }
             }
         }
 
@@ -1855,7 +1485,7 @@ public class IGV implements IGVEventObserver {
     /**
      * Load the data file into the specified panel.   Triggered via drag and drop.
      */
-    public void load(ResourceLocator locator, TrackPanel panel) throws DataLoadException {
+    public void load(final ResourceLocator locator, final TrackPanel panel) throws DataLoadException {
 
         // If this is a session  TODO -- need better "is a session?" test
         if (locator.getPath().endsWith(".xml") || locator.getPath().endsWith(("session"))) {
@@ -1863,9 +1493,12 @@ public class IGV implements IGVEventObserver {
             this.doRestoreSession(locator.getPath(), null, merge);
         } else {
             // Not a session, load into target panel
-            List<Track> tracks = load(locator);
-            panel.addTracks(tracks);
-            doRefresh();
+            Runnable runnable = () -> {
+                List<Track> tracks = load(locator);
+                panel.addTracks(tracks);
+                doRefresh();
+            };
+            LongRunningTask.submit(runnable);
         }
     }
 
@@ -1879,7 +1512,7 @@ public class IGV implements IGVEventObserver {
         String path = locator.getPath().toLowerCase();
         if ("alist".equals(locator.getType())) {
             return getVcfBamPanel();
-        } else if (PreferenceManager.getInstance().getAsBoolean(PreferenceManager.SHOW_SINGLE_TRACK_PANE_KEY)) {
+        } else if (PreferencesManager.getPreferences().getAsBoolean(SHOW_SINGLE_TRACK_PANE_KEY)) {
             return getTrackPanel(DATA_PANEL_NAME);
         } else if (TrackLoader.isAlignmentTrack(locator.getTypeString())) {
             String newPanelName = "Panel" + System.currentTimeMillis();
@@ -1931,18 +1564,22 @@ public class IGV implements IGVEventObserver {
         }
 
 
-        if (filename.contains("refflat") || filename.contains("ucscgene") ||
+        if (isAnnotationFile(filename)) {
+            return getTrackPanel(FEATURE_PANEL_NAME);
+        } else {
+            return getTrackPanel(DATA_PANEL_NAME);
+        }
+    }
+
+    private boolean isAnnotationFile(String filename) {
+        return filename.contains("refflat") || filename.contains("ucscgene") ||
                 filename.contains("genepred") || filename.contains("ensgene") ||
                 filename.contains("refgene") ||
                 filename.endsWith("gff") || filename.endsWith("gtf") ||
                 filename.endsWith("gff3") || filename.endsWith("embl") ||
                 filename.endsWith("bed") || filename.endsWith("gistic") ||
                 filename.endsWith("bedz") || filename.endsWith("repmask") ||
-                filename.contains("dranger")) {
-            return getTrackPanel(FEATURE_PANEL_NAME);
-        } else {
-            return getTrackPanel(DATA_PANEL_NAME);
-        }
+                filename.contains("dranger") || filename.endsWith("ucscsnp");
     }
 
     public void reset() {
@@ -1953,7 +1590,7 @@ public class IGV implements IGVEventObserver {
                 break;
             }
         }
-        groupListeners.clear();
+
     }
 
 
@@ -1982,13 +1619,13 @@ public class IGV implements IGVEventObserver {
      * @api
      */
     public void groupAlignmentTracks(AlignmentTrack.GroupOption option, String tag, Range pos) {
-        final PreferenceManager prefMgr = PreferenceManager.getInstance();
-        prefMgr.put(PreferenceManager.SAM_GROUP_OPTION, option.toString());
+        final IGVPreferences prefMgr = PreferencesManager.getPreferences();
+        prefMgr.put(SAM_GROUP_OPTION, option.toString());
         if (option == AlignmentTrack.GroupOption.TAG && tag != null) {
-            prefMgr.put(PreferenceManager.SAM_GROUP_BY_TAG, tag);
+            prefMgr.put(SAM_GROUP_BY_TAG, tag);
         }
         if (option == AlignmentTrack.GroupOption.BASE_AT_POS && pos != null) {
-            prefMgr.put(PreferenceManager.SAM_GROUP_BY_POS, pos.getChr() + " " + String.valueOf(pos.getStart()));
+            prefMgr.put(SAM_GROUP_BY_POS, pos.getChr() + " " + String.valueOf(pos.getStart()));
         }
         for (Track t : getAllTracks()) {
             if (t instanceof AlignmentTrack) {
@@ -2219,11 +1856,8 @@ public class IGV implements IGVEventObserver {
         }
 
         for (Track t : tracksToRemove) {
-            if (t instanceof TrackGroupEventListener) {
-                removeGroupEventListener((TrackGroupEventListener) t);
-            }
-            if (t instanceof AlignmentTrackEventListener) {
-                removeAlignmentTrackEvent((AlignmentTrackEventListener) t);
+            if (t instanceof IGVEventObserver) {
+                IGVEventBus.getInstance().unsubscribe((IGVEventObserver) t);
             }
         }
 
@@ -2240,7 +1874,7 @@ public class IGV implements IGVEventObserver {
      */
     public void setGenomeTracks(FeatureTrack newGeneTrack) {
 
-        TrackPanel panel = PreferenceManager.getInstance().getAsBoolean(PreferenceManager.SHOW_SINGLE_TRACK_PANE_KEY) ?
+        TrackPanel panel = PreferencesManager.getPreferences().getAsBoolean(SHOW_SINGLE_TRACK_PANE_KEY) ?
                 getTrackPanel(DATA_PANEL_NAME) : getTrackPanel(FEATURE_PANEL_NAME);
         SequenceTrack newSeqTrack = new SequenceTrack("Reference sequence");
 
@@ -2316,7 +1950,7 @@ public class IGV implements IGVEventObserver {
         for (TrackPanel trackPanel : getTrackPanels()) {
             trackPanel.sortByRegionsScore(r, type, frame, sortedSamples);
         }
-        repaintDataPanels();
+        revalidateTrackPanels();
     }
 
 
@@ -2408,7 +2042,7 @@ public class IGV implements IGVEventObserver {
         groupByAttribute = attributeName;
         resetGroups();
         // Some tracks need to respond to changes in grouping, fire notification event
-        notifyGroupEvent();
+        IGVEventBus.getInstance().post(new TrackGroupEvent(this));
     }
 
 
@@ -2416,63 +2050,6 @@ public class IGV implements IGVEventObserver {
         log.debug("Resetting Groups");
         for (TrackPanel trackPanel : getTrackPanels()) {
             trackPanel.groupTracksByAttribute(groupByAttribute);
-        }
-    }
-
-    //////////////////////////////////////////////////////////////////////////////////////////////
-    // Events
-
-    public synchronized void addGroupEventListener(TrackGroupEventListener l) {
-        groupListeners.add(new WeakReference<TrackGroupEventListener>(l));
-    }
-
-    public synchronized void removeGroupEventListener(TrackGroupEventListener l) {
-
-        for (Iterator<WeakReference<TrackGroupEventListener>> it = groupListeners.iterator(); it.hasNext(); ) {
-            TrackGroupEventListener listener = it.next().get();
-            if (listener != null && listener == l) {
-                it.remove();
-                break;
-            }
-        }
-    }
-
-    public void notifyGroupEvent() {
-        TrackGroupEvent e = new TrackGroupEvent(this);
-        for (WeakReference<TrackGroupEventListener> ref : groupListeners) {
-            TrackGroupEventListener l = ref.get();
-            l.onTrackGroupEvent(e);
-        }
-    }
-
-    public synchronized void addAlignmentTrackEventListener(AlignmentTrackEventListener l) {
-        alignmentTrackListeners.add(new WeakReference<AlignmentTrackEventListener>(l));
-    }
-
-    public synchronized void removeAlignmentTrackEvent(AlignmentTrackEventListener l) {
-        for (Iterator<WeakReference<AlignmentTrackEventListener>> it = alignmentTrackListeners.iterator(); it.hasNext(); ) {
-            AlignmentTrackEventListener listener = it.next().get();
-            if (listener != null && listener == l) {
-                it.remove();
-                break;
-            }
-        }
-    }
-
-    public void notifyAlignmentTrackEvent(Object source, AlignmentTrackEvent.Type type, boolean value) {
-        AlignmentTrackEvent e = new AlignmentTrackEvent(source, type, value);
-        for (WeakReference<AlignmentTrackEventListener> ref : alignmentTrackListeners) {
-            AlignmentTrackEventListener l = ref.get();
-            l.onAlignmentTrackEvent(e);
-        }
-    }
-
-
-    public void notifyAlignmentTrackEvent(Object source, AlignmentTrackEvent.Type type) {
-        AlignmentTrackEvent e = new AlignmentTrackEvent(source, type);
-        for (WeakReference<AlignmentTrackEventListener> ref : alignmentTrackListeners) {
-            AlignmentTrackEventListener l = ref.get();
-            l.onAlignmentTrackEvent(e);
         }
     }
 
@@ -2502,7 +2079,9 @@ public class IGV implements IGVEventObserver {
      * Swing worker class to startup IGV
      */
     public class StartupRunnable implements Runnable {
+
         Main.IGVArgs igvArgs;
+        ProgressBar.ProgressDialog progressDialog;
 
         StartupRunnable(Main.IGVArgs args) {
             this.igvArgs = args;
@@ -2515,36 +2094,46 @@ public class IGV implements IGVEventObserver {
             final boolean runningBatch = igvArgs.getBatchFile() != null;
             BatchRunner.setIsBatchMode(runningBatch);
 
-            final ProgressMonitor monitor = new ProgressMonitor();
-            final ProgressBar.ProgressDialog progressDialog = ProgressBar.showProgressDialog(mainFrame, "Initializing...", monitor, false);
-            progressDialog.getProgressBar().setIndeterminate(true);
-            monitor.fireProgressChange(20);
 
-            mainFrame.setIconImage(getIconImage());
+            UIUtilities.invokeOnEventThread(() -> mainFrame.setIconImage(getIconImage()));
             if (Globals.IS_MAC) {
                 setAppleDockIcon();
             }
 
-            final PreferenceManager preferenceManager = PreferenceManager.getInstance();
+            final IGVPreferences preferenceManager = PreferencesManager.getPreferences();
 
-            try {
-                contentPane.getCommandBar().initializeGenomeList(monitor);
-            } catch (FileNotFoundException ex) {
-                JOptionPane.showMessageDialog(mainFrame, "Error initializing genome list: " + ex.getMessage());
-                log.error("Error initializing genome list: ", ex);
-            } catch (NoRouteToHostException ex) {
-                JOptionPane.showMessageDialog(mainFrame, "Network error initializing genome list: " + ex.getMessage());
-                log.error("Network error initializing genome list: ", ex);
-            } finally {
-                monitor.fireProgressChange(50);
-                closeWindow(progressDialog);
+            boolean genomeLoaded = false;
+            if (igvArgs.getGenomeId() != null) {
+                String genomeId = igvArgs.getGenomeId();
+                try {
+                    GenomeManager.getInstance().loadGenomeById(genomeId);
+                    genomeLoaded = true;
+                } catch (IOException e) {
+                    MessageUtils.showErrorMessage("Error loading genome: " + genomeId, e);
+                    log.error("Error loading genome: " + genomeId, e);
+                }
             }
 
-            if (igvArgs.getGenomeId() != null) {
-                IGV.getInstance().loadGenomeById(igvArgs.getGenomeId());
-            } else if (igvArgs.getSessionFile() == null) {
+
+            if (genomeLoaded == false && igvArgs.getSessionFile() == null) {
                 String genomeId = preferenceManager.getDefaultGenome();
-                contentPane.getCommandBar().selectGenome(genomeId);
+                try {
+                    GenomeManager.getInstance().loadGenomeById(genomeId);
+                    genomeLoaded = true;
+                } catch (Exception e) {
+                    MessageUtils.showErrorMessage("Error loading genome: " + genomeId, e);
+                    log.error("Error loading genome: " + genomeId, e);
+                }
+            }
+
+            if (genomeLoaded == false && igvArgs.getSessionFile() == null) {
+                String genomeId = GenomeManager.DEFAULT_GENOME.getId();
+                try {
+                    GenomeManager.getInstance().loadGenomeById(genomeId);
+                } catch (IOException e) {
+                    MessageUtils.showErrorMessage("Error loading genome: " + genomeId, e);
+                    log.error("Error loading genome: " + genomeId, e);
+                }
             }
 
             //Load plugins
@@ -2586,7 +2175,7 @@ public class IGV implements IGVEventObserver {
                     }
                 } else if (igvArgs.getDataFileString() != null) {
                     // Not an xml file, assume its a list of data files
-                    String decodedString = URLDecoder.decode(igvArgs.getDataFileString());
+                    String decodedString = igvArgs.getDataFileString();
                     String[] dataFiles = decodedString.split(",");
                     String[] names = null;
                     if (igvArgs.getName() != null) {
@@ -2657,11 +2246,11 @@ public class IGV implements IGVEventObserver {
             session.recordHistory();
 
             // Start up a port listener.  Port # can be overriden with "-p" command line switch
-            boolean portEnabled = preferenceManager.getAsBoolean(PreferenceManager.PORT_ENABLED);
+            boolean portEnabled = preferenceManager.getAsBoolean(PORT_ENABLED);
             String portString = igvArgs.getPort();
             if (portEnabled || portString != null) {
                 // Command listener thread
-                int port = preferenceManager.getAsInt(PreferenceManager.PORT_NUMBER);
+                int port = preferenceManager.getAsInt(PORT_NUMBER);
                 if (portString != null) {
                     port = Integer.parseInt(portString);
                 }
@@ -2718,7 +2307,7 @@ public class IGV implements IGVEventObserver {
                     log.error("Error reading builtin plugin list", e);
                 }
             }
-            pluginClassNames.addAll(Arrays.asList(PreferenceManager.getInstance().getIGVPluginList()));
+            pluginClassNames.addAll(Arrays.asList(PreferencesManager.getPreferences().getIGVPluginList()));
             for (String classname : pluginClassNames) {
                 if (classname.startsWith("#")) continue;
                 try {
@@ -2734,22 +2323,20 @@ public class IGV implements IGVEventObserver {
 
     }
 
-
-    public static void copySequenceToClipboard(Genome genome, String chr, int start, int end) {
+    public static void copySequenceToClipboard(Genome genome, String chr, int start, int end, Strand strand) {
         try {
             IGV.getMainFrame().setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
             byte[] seqBytes = genome.getSequence(chr, start, end);
 
             if (seqBytes == null) {
-                MessageUtils.showMessage("Sequence not available. Try enabling http byte-range requests");
+                MessageUtils.showMessage("Sequence not available");
             } else {
                 String sequence = new String(seqBytes);
-                //TODO This will complement sequence if sequence track is flipped
-                //Might be un-intuitive to user if they do it from region dialog
-//                SequenceTrack sequenceTrack = IGV.getInstance().getSequenceTrack();
-//                if(sequenceTrack != null && sequenceTrack.getStrand() == Strand.NEGATIVE){
-//                    sequence = AminoAcidManager.getNucleotideComplement(sequence);
-//                }
+
+                SequenceTrack sequenceTrack = IGV.getInstance().getSequenceTrack();
+                if (strand == Strand.NEGATIVE || (sequenceTrack != null && sequenceTrack.getStrand() == Strand.NEGATIVE)) {
+                    sequence = SequenceTrack.getReverseComplement(sequence);
+                }
                 StringUtils.copyTextToClipboard(sequence);
             }
 
@@ -2760,7 +2347,7 @@ public class IGV implements IGVEventObserver {
 
 
     /**
-     * Wrapper for igv.wait(timeout)
+     * Wrapper for igv.wait(timeout).   Used during unit tests.
      *
      * @param timeout
      * @return True if method completed before interruption (not necessarily before timeout), otherwise false
@@ -2781,6 +2368,73 @@ public class IGV implements IGVEventObserver {
         return completed;
     }
 
+    public void receiveEvent(Object event) {
+
+        if (event instanceof ViewChange || event instanceof InsertionSelectionEvent) {
+            revalidateTrackPanels();   // TODO -- this seems extreme
+        } else if (event instanceof ShiftEvent) {
+            revalidateTrackPanels();
+        } else if (event instanceof GenomeChangeEvent) {
+            doRefresh();
+        } else {
+            log.info("Unknown event type: " + event.getClass());
+        }
+
+    }
+
+
+    public void repaint() {
+        mainFrame.repaint();
+    }
+
+    public void resetFrames() {
+
+        contentPane.getMainPanel().headerPanelContainer.createHeaderPanels();
+        for (TrackPanel tp : getTrackPanels()) {
+            tp.createDataPanels();
+        }
+
+        contentPane.getCommandBar().setGeneListMode(FrameManager.isGeneListMode());
+        contentPane.getMainPanel().applicationHeaderPanel.revalidate();
+        contentPane.getMainPanel().validate();
+        contentPane.getMainPanel().repaint();
+    }
+
+    final public void doRefresh() {
+        contentPane.getMainPanel().revalidate();
+        mainFrame.repaint();
+        getContentPane().repaint();
+    }
+
+    /**
+     * Repaint the header and data panels.
+     * <p/>
+     * Note:  If running in Batch mode we force synchronous painting.  This is necessary as the
+     * paint() command triggers loading of data.  If allowed to proceed asynchronously the "snapshot" batch command
+     * might execute before the data from a previous command has loaded.
+     */
+    public void revalidateTrackPanels() {
+
+        UIUtilities.invokeOnEventThread(() -> {
+
+            if (Globals.isBatch()) {
+                contentPane.revalidateTrackPanels();
+                rootPane.paintImmediately(rootPane.getBounds());
+            } else {
+                contentPane.revalidateTrackPanels();
+                rootPane.repaint();
+
+            }
+        });
+    }
+
+    public void repaintNamePanels() {
+        for (TrackPanel tp : getTrackPanels()) {
+            tp.getScrollPane().getNamePanel().repaint();
+        }
+    }
+
+
 //
 //    NOTE:  MAC ONLY,  WILL NOT COMPILE ON OTHER PLATFORMS
 //    private void getRealDPI() {
@@ -2800,5 +2454,6 @@ public class IGV implements IGVEventObserver {
 //            System.out.println("scale factor = " + scaleFactor + "    realDPI = " + realDPI);
 //        }
 //    }
+
 
 }

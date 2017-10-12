@@ -30,6 +30,7 @@
 package org.broad.igv.ui.panel;
 
 import org.broad.igv.Globals;
+import org.broad.igv.feature.Strand;
 import org.broad.igv.util.blat.BlatClient;
 import org.broad.igv.feature.RegionOfInterest;
 import org.broad.igv.feature.genome.Genome;
@@ -182,7 +183,7 @@ public class RegionOfInterestPanel extends JPanel {
 
                     public void run() {
                         Genome genome = GenomeManager.getInstance().getCurrentGenome();
-                        IGV.copySequenceToClipboard(genome, roi.getChr(), roi.getStart(), roi.getEnd());
+                        IGV.copySequenceToClipboard(genome, roi.getChr(), roi.getStart(), roi.getEnd(), Strand.NONE);
                     }
                 });
             }
@@ -198,7 +199,7 @@ public class RegionOfInterestPanel extends JPanel {
         item.addActionListener(new ActionListener() {
 
             public void actionPerformed(ActionEvent e) {
-                BlatClient.doBlatQuery(roi.getChr(), roi.getStart(), roi.getEnd());
+                BlatClient.doBlatQuery(roi.getChr(), roi.getStart(), roi.getEnd(), Strand.NONE);
             }
         });
         popupMenu.add(item);
@@ -211,7 +212,7 @@ public class RegionOfInterestPanel extends JPanel {
 
             public void actionPerformed(ActionEvent e) {
                 IGV.getInstance().getSession().getRegionsOfInterest(frame.getChrName()).remove(roi);
-                IGV.getInstance().repaintDataAndHeaderPanels();
+                IGV.getInstance().revalidateTrackPanels();
             }
         });
         popupMenu.add(item);
@@ -250,13 +251,13 @@ public class RegionOfInterestPanel extends JPanel {
                 setToolTipText(roi.getTooltip());
                 if (selectedRegion != roi) {
                     selectedRegion = roi;
-                    IGV.getInstance().repaintDataPanels();
+                    IGV.getInstance().revalidateTrackPanels();
                 }
 
             } else {
                 if (selectedRegion != null) {
                     selectedRegion = null;
-                    IGV.getInstance().repaintDataPanels();
+                    IGV.getInstance().revalidateTrackPanels();
                 }
                 setToolTipText("");
                 setCursor(Cursor.getDefaultCursor());
@@ -267,7 +268,7 @@ public class RegionOfInterestPanel extends JPanel {
         public void mouseExited(MouseEvent mouseEvent) {
             if (selectedRegion != null) {
                 selectedRegion = null;
-                IGV.getInstance().repaintDataPanels();
+                IGV.getInstance().revalidateTrackPanels();
             }
         }
 

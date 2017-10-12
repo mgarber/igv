@@ -25,12 +25,16 @@
 
 package org.broad.igv.track;
 
+import org.broad.igv.feature.Chromosome;
 import org.broad.igv.feature.LocusScore;
+import org.broad.igv.feature.genome.Genome;
+import org.broad.igv.feature.genome.GenomeManager;
 import org.broad.igv.renderer.ContinuousColorScale;
 import org.broad.igv.renderer.DataRange;
 import org.broad.igv.session.IGVSessionReader;
 import org.broad.igv.session.SubtlyImportant;
 import org.broad.igv.ui.color.ColorUtilities;
+import org.broad.igv.ui.panel.FrameManager;
 import org.broad.igv.ui.panel.IGVPopupMenu;
 import org.broad.igv.ui.panel.ReferenceFrame;
 import org.broad.igv.util.ResourceLocator;
@@ -83,6 +87,34 @@ public class MergedTracks extends DataTrack implements ScalableTrack {
                 this.memberTracks.add(inputTrack);
             }
         }
+
+        // Set the group autoscale attribute only of all tracks are in the same group
+        this.removeAttribute(AttributeManager.GROUP_AUTOSCALE);
+        if (memberTracks.size() > 0) {
+            String group = memberTracks.iterator().next().getAttributeValue(AttributeManager.GROUP_AUTOSCALE);
+            if(group != null) {
+                for (Track t : memberTracks) {
+                    if(!group.equals(t.getAttributeValue(AttributeManager.GROUP_AUTOSCALE))) return;
+                }
+                this.setAttributeValue(AttributeManager.GROUP_AUTOSCALE, group);
+            }
+        }
+    }
+
+    @Override
+    public boolean isReadyToPaint(ReferenceFrame frame) {
+       return  this.memberTracks.stream().allMatch((t) -> t.isReadyToPaint(frame));
+    }
+
+
+    @Override
+    public synchronized void load(ReferenceFrame referenceFrame) {
+
+        for(DataTrack t : memberTracks) {
+            if(!t.isReadyToPaint(referenceFrame)) {
+                t.load(referenceFrame);
+            }
+        }
     }
 
     @Override
@@ -95,7 +127,7 @@ public class MergedTracks extends DataTrack implements ScalableTrack {
     }
 
     @XmlElement(name = MEMBER_TRACK_TAG_NAME)
-    Collection<DataTrack> getMemberTracks() {
+    public Collection<DataTrack> getMemberTracks() {
         return this.memberTracks;
     }
 
@@ -165,7 +197,7 @@ public class MergedTracks extends DataTrack implements ScalableTrack {
     }
 
     @Override
-    public List<LocusScore> getSummaryScores(String chr, int startLocation, int endLocation, int zoom) {
+    public LoadedDataInterval<List<LocusScore>> getSummaryScores(String chr, int startLocation, int endLocation, int zoom) {
         return null;
     }
 
@@ -196,12 +228,23 @@ public class MergedTracks extends DataTrack implements ScalableTrack {
     @Override
     public void setAttributeValue(String name, String value) {
         super.setAttributeValue(name, value);
-        if(name.equals(AttributeManager.GROUP_AUTOSCALE)) {
+        if (name.equals(AttributeManager.GROUP_AUTOSCALE)) {
             for (Track track : memberTracks) {
                 track.setAttributeValue(name, value);
             }
         }
     }
+
+    @Override
+    public void removeAttribute(String name) {
+        super.removeAttribute(name);
+        if (name.equals(AttributeManager.GROUP_AUTOSCALE)) {
+            for (Track track : memberTracks) {
+                track.removeAttribute(name);
+            }
+        }
+    }
+
 
     @Override
     public ContinuousColorScale getColorScale() {
@@ -281,7 +324,7 @@ public class MergedTracks extends DataTrack implements ScalableTrack {
     public Range getInViewRange(ReferenceFrame referenceFrame) {
 
         List<LocusScore> scores = new ArrayList<LocusScore>();
-        for(DataTrack track : memberTracks) {
+        for (DataTrack track : memberTracks) {
             scores.addAll(track.getInViewScores(referenceFrame));
         }
 

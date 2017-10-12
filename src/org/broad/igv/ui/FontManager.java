@@ -30,13 +30,15 @@
 
 package org.broad.igv.ui;
 
-import org.broad.igv.Globals;
-import org.broad.igv.PreferenceManager;
+import org.broad.igv.prefs.IGVPreferences;
+import org.broad.igv.prefs.PreferencesManager;
 
 import javax.swing.*;
 import java.awt.*;
 import java.util.Hashtable;
 import java.util.Set;
+
+import static org.broad.igv.prefs.Constants.*;
 
 /**
  * @author eflakes
@@ -58,12 +60,12 @@ public class FontManager {
 
     static public Font getFont(int sz) {
 
-        final PreferenceManager prefManager = PreferenceManager.getInstance();
+        final IGVPreferences prefManager = PreferencesManager.getPreferences();
 
         int size = (int) (scaleFactor * sz);
 
-        String fontFamily = prefManager.get(PreferenceManager.DEFAULT_FONT_FAMILY);
-        int attribute = prefManager.getAsInt(PreferenceManager.DEFAULT_FONT_ATTRIBUTE);
+        String fontFamily = prefManager.get(DEFAULT_FONT_FAMILY);
+        int attribute = prefManager.getAsInt(DEFAULT_FONT_ATTRIBUTE);
         String key = fontFamily + "_" + attribute + "_" + size;
         Font font = fontCache.get(key);
         if (font == null) {
@@ -77,8 +79,8 @@ public class FontManager {
 
         int size = (int) (scaleFactor * sz);
 
-        final PreferenceManager prefManager = PreferenceManager.getInstance();
-        String fontFamily = prefManager.get(PreferenceManager.DEFAULT_FONT_FAMILY);
+        final IGVPreferences prefManager = PreferencesManager.getPreferences();
+        String fontFamily = prefManager.get(DEFAULT_FONT_FAMILY);
         String key = fontFamily + "_" + attribute + "_" + size;
         Font font = fontCache.get(key);
         if (font == null) {
@@ -89,18 +91,18 @@ public class FontManager {
     }
 
     public static void updateDefaultFont() {
-        final PreferenceManager prefManager = PreferenceManager.getInstance();
-        String fontFamily = prefManager.get(PreferenceManager.DEFAULT_FONT_FAMILY);
-        int fontSize = prefManager.getAsInt(PreferenceManager.DEFAULT_FONT_SIZE);
-        int attribute = prefManager.getAsInt(PreferenceManager.DEFAULT_FONT_ATTRIBUTE);
+        final IGVPreferences prefManager = PreferencesManager.getPreferences();
+        String fontFamily = prefManager.get(DEFAULT_FONT_FAMILY);
+        int fontSize = prefManager.getAsInt(DEFAULT_FONT_SIZE);
+        int attribute = prefManager.getAsInt(DEFAULT_FONT_ATTRIBUTE);
         defaultFont = new Font(fontFamily, attribute, fontSize);
     }
 
     public static void resetDefaultFont() {
-        final PreferenceManager prefMgr = PreferenceManager.getInstance();
-        prefMgr.remove(PreferenceManager.DEFAULT_FONT_SIZE);
-        prefMgr.remove(PreferenceManager.DEFAULT_FONT_FAMILY);
-        prefMgr.remove(PreferenceManager.DEFAULT_FONT_ATTRIBUTE);
+        final IGVPreferences prefMgr = PreferencesManager.getPreferences();
+        prefMgr.remove(DEFAULT_FONT_SIZE);
+        prefMgr.remove(DEFAULT_FONT_FAMILY);
+        prefMgr.remove(DEFAULT_FONT_ATTRIBUTE);
         updateDefaultFont();
     }
 
